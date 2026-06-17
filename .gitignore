@@ -1,0 +1,24 @@
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+backend/.venv/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Environment
+.env
+*.log
+
+# Service account keys / credentials (NEVER commit)
+backend/*.json
+*-credentials.json
+*service-account*.json
+
+# OS
+.DS_Store
+Thumbs.db
