@@ -34,6 +34,23 @@ WEBSOCKET_HOST = "0.0.0.0"
 WEBSOCKET_PORT = 8000
 CORS_ORIGINS = ["http://localhost:5173", "http://localhost:3000"]
 
+# Warm session pool (phase 2: take the connect handshake off the request path).
+# Valid only while the system instruction is generic — see CLAUDE.md.
+POOL_SIZE = 5                   # number of pre-warmed Gemini sessions kept ready
+POOL_MAX_AGE_S = 240.0          # recycle an idle warm session this often (well
+                                # under the ~10-min connection cap; tune via
+                                # idle_session_probe.py)
+POOL_CHECKOUT_TIMEOUT_S = 0.25  # wait this long for a warm session before the
+                                # request falls back to a cold connect
+
+# Per-user conversation budget, measured from the moment they connect. Session
+# resumption is used only to BRIDGE the ~10-min per-connection cap when a
+# pre-warmed (idle-aged) session would otherwise be cut short — i.e. to buy back
+# the idle time the pool consumed — and the session ends at this budget. It is
+# NOT used to grant unlimited/extra windows. Match this to the intended session
+# length (~10 min, the Vertex per-connection cap a fresh session would give).
+SESSION_BUDGET_S = 600.0
+
 # Response Configuration
 RESPONSE_MODALITIES = ["AUDIO"]
 
