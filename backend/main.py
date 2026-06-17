@@ -100,6 +100,11 @@ def build_live_config(
 
     return types.LiveConnectConfig(
         response_modalities=RESPONSE_MODALITIES,
+        # Google Search grounding so Sparrow can base health answers on current,
+        # reputable sources. In us-central1 this is handled server-side; note a
+        # reported regression in some regions delivers it as a client function
+        # call instead (see README), which would need a search proxy to fulfill.
+        tools=[types.Tool(google_search=types.GoogleSearch())],
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(
