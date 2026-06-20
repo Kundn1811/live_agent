@@ -101,9 +101,14 @@ class WarmPool:
                 except asyncio.TimeoutError:
                     return None
             slot = min(self._ready.values(), key=lambda s: s.opened_at)
+            idle_age = time.monotonic() - slot.opened_at
             del self._ready[slot.id]
             slot.state = "checked_out"
             slot.handoff.set()
+            logger.info(
+                "pool: checkout -> session %d (idle age %.1fs, %d ready left)",
+                slot.id, idle_age, len(self._ready),
+            )
             return slot
 
     def release(self, slot: _Slot):

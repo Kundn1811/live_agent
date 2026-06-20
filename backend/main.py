@@ -7,6 +7,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import time
 import traceback
 from contextlib import asynccontextmanager
@@ -41,11 +42,26 @@ from config import (
 from session_pool import WarmPool
 from resumable_session import ResumableSession
 
-logging.basicConfig(level=logging.INFO)
+# Log to both console and backend/server.log (path-anchored so it lands next to
+# this file regardless of CWD). Timestamps + per-connection ids let us trace one
+# user's connect -> consume -> disconnect -> reconnect cycle and compare latencies.
+LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "server.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(LOG_PATH, mode="a", encoding="utf-8"),
+    ],
+)
 logger = logging.getLogger(__name__)
 
 # Warm pool of pre-opened Gemini sessions, started/stopped with the app.
 pool = None
+
+# Monotonic per-connection id so each user's lifecycle is traceable in the log.
+_conn_seq = 0
 
 
 @asynccontextmanager
@@ -138,14 +154,18 @@ async def send_json(ws: WebSocket, message: dict):
         pass
 
 
-async def receive_from_client(ws: WebSocket, session):
+async def receive_from_client(ws: WebSocket, session, conn_id: int):
     """Read audio from the frontend and forward to Gemini. Runs until WebSocket closes."""
+    first_audio_logged = False
     try:
         while True:
             raw = await ws.receive_text()
             msg = json.loads(raw)
 
             if msg.get("type") == "audio":
+                if not first_audio_logged:
+                    first_audio_logged = True
+                    logger.info("conn %d: first client audio frame received", conn_id)
                 audio_bytes = base64.b64decode(msg.get("data", ""))
                 await session.send_realtime_input(
                     audio=types.Blob(
@@ -154,15 +174,15 @@ async def receive_from_client(ws: WebSocket, session):
                     )
                 )
             elif msg.get("type") == "stop":
-                logger.info("Client requested stop")
+                logger.info("conn %d: client requested stop", conn_id)
                 break
     except WebSocketDisconnect:
-        logger.info("Client WebSocket disconnected")
+        logger.info("conn %d: client WebSocket disconnected", conn_id)
     except Exception as e:
-        logger.error("receive_from_client error: %s\n%s", e, traceback.format_exc())
+        logger.error("conn %d: receive_from_client error: %s\n%s", conn_id, e, traceback.format_exc())
 
 
-async def receive_from_gemini(ws: WebSocket, session):
+async def receive_from_gemini(ws: WebSocket, session, conn_id: int):
     """Read responses from Gemini and forward to the frontend.
 
     `session` is a ResumableSession whose receive() spans turns and reconnects,
@@ -174,7 +194,9 @@ async def receive_from_gemini(ws: WebSocket, session):
         # i.e. end-of-speech) and stop at the first audio byte of the session.
         # Sent to the client once so the dashboard can compare it against the
         # client-measured number; the gap approximates the client<->server hop.
+        t_recv_start = time.perf_counter()  # ~moment the session is live/ready
         last_input_ts = None
+        first_input_logged = False
         server_first_audio_sent = False
         async for response in session.receive():
             sc = response.server_content
@@ -183,6 +205,12 @@ async def receive_from_gemini(ws: WebSocket, session):
 
             if sc.input_transcription and sc.input_transcription.text:
                 last_input_ts = time.perf_counter()
+                if not first_input_logged:
+                    first_input_logged = True
+                    logger.info(
+                        "conn %d: first input transcription (+%.0f ms since ready)",
+                        conn_id, (last_input_ts - t_recv_start) * 1000,
+                    )
                 await send_json(ws, {
                     "type": "input_transcript",
                     "text": sc.input_transcription.text,
@@ -197,8 +225,10 @@ async def receive_from_gemini(ws: WebSocket, session):
                             )
                             server_first_audio_sent = True
                             logger.info(
-                                "Server first audio byte %.1f ms after end of user speech",
-                                server_first_audio_ms,
+                                "conn %d: server first audio %.1f ms after end-of-speech "
+                                "(+%.0f ms since ready)",
+                                conn_id, server_first_audio_ms,
+                                (time.perf_counter() - t_recv_start) * 1000,
                             )
                             await send_json(ws, {
                                 "type": "server_first_audio",
@@ -236,26 +266,27 @@ def _resume_config(handle: str) -> types.LiveConnectConfig:
     )
 
 
-async def _run_session(ws: WebSocket, session, setup_latency_ms: float, warm: bool):
+async def _run_session(ws: WebSocket, session, setup_latency_ms: float, warm: bool,
+                       conn_id: int):
     """Send setup_complete, then pump audio both directions until a side ends."""
-    logger.info("Session ready (warm=%s) in %.1f ms", warm, setup_latency_ms)
+    logger.info("conn %d: session ready (warm=%s) in %.1f ms", conn_id, warm, setup_latency_ms)
     await send_json(ws, {
         "type": "setup_complete",
         "setup_latency_ms": setup_latency_ms,
         "warm": warm,
     })
 
-    sender = asyncio.create_task(receive_from_client(ws, session), name="sender")
-    receiver = asyncio.create_task(receive_from_gemini(ws, session), name="receiver")
+    sender = asyncio.create_task(receive_from_client(ws, session, conn_id), name="sender")
+    receiver = asyncio.create_task(receive_from_gemini(ws, session, conn_id), name="receiver")
 
     done, pending = await asyncio.wait(
         [sender, receiver], return_when=asyncio.FIRST_COMPLETED
     )
 
     for task in done:
-        logger.info("Task '%s' finished first", task.get_name())
+        logger.info("conn %d: task '%s' finished first", conn_id, task.get_name())
         if task.exception():
-            logger.error("Task '%s' raised: %s", task.get_name(), task.exception())
+            logger.error("conn %d: task '%s' raised: %s", conn_id, task.get_name(), task.exception())
 
     for task in pending:
         task.cancel()
@@ -264,12 +295,20 @@ async def _run_session(ws: WebSocket, session, setup_latency_ms: float, warm: bo
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    global _conn_seq
+    _conn_seq += 1
+    conn_id = _conn_seq
+    t_accept = time.perf_counter()
     await ws.accept()
-    logger.info("WebSocket client connected")
+    logger.info("conn %d: WebSocket client connected", conn_id)
 
     try:
         setup_raw = await ws.receive_text()
         setup_msg = json.loads(setup_raw)
+        logger.info(
+            "conn %d: setup message received (+%.0f ms after accept)",
+            conn_id, (time.perf_counter() - t_accept) * 1000,
+        )
 
         if setup_msg.get("type") != "setup":
             await send_json(ws, {"type": "error", "message": "Expected setup message"})
@@ -286,6 +325,10 @@ async def websocket_endpoint(ws: WebSocket):
 
         if slot is not None:
             setup_latency_ms = round((time.perf_counter() - checkout_start) * 1000, 1)
+            logger.info(
+                "conn %d: WARM checkout -> session %d, handshake %.1f ms",
+                conn_id, slot.id, setup_latency_ms,
+            )
 
             async def _dispose_pool():
                 pool.release(slot)
@@ -295,11 +338,12 @@ async def websocket_endpoint(ws: WebSocket):
                 budget_s=SESSION_BUDGET_S,
             )
             try:
-                await _run_session(ws, session, setup_latency_ms, warm=True)
+                await _run_session(ws, session, setup_latency_ms, warm=True,
+                                   conn_id=conn_id)
             finally:
                 await session.aclose()
         else:
-            logger.warning("Warm pool empty — cold-connecting")
+            logger.warning("conn %d: warm pool empty — COLD-connecting", conn_id)
             config = build_live_config(
                 DEFAULT_SYSTEM_INSTRUCTION.format(ai_gender=AI_GENDER)
             )
@@ -307,6 +351,10 @@ async def websocket_endpoint(ws: WebSocket):
             cm = client.aio.live.connect(model=MODEL_ID, config=config)
             cold_session = await cm.__aenter__()
             setup_latency_ms = round((time.perf_counter() - connect_start) * 1000, 1)
+            logger.info(
+                "conn %d: COLD connect ready, handshake %.1f ms",
+                conn_id, setup_latency_ms,
+            )
 
             async def _dispose_cold():
                 await cm.__aexit__(None, None, None)
@@ -316,17 +364,21 @@ async def websocket_endpoint(ws: WebSocket):
                 budget_s=SESSION_BUDGET_S,
             )
             try:
-                await _run_session(ws, session, setup_latency_ms, warm=False)
+                await _run_session(ws, session, setup_latency_ms, warm=False,
+                                   conn_id=conn_id)
             finally:
                 await session.aclose()
 
     except WebSocketDisconnect:
-        logger.info("Client disconnected")
+        logger.info("conn %d: client disconnected", conn_id)
     except Exception as e:
-        logger.error("WebSocket error: %s\n%s", e, traceback.format_exc())
+        logger.error("conn %d: WebSocket error: %s\n%s", conn_id, e, traceback.format_exc())
         await send_json(ws, {"type": "error", "message": str(e)})
     finally:
-        logger.info("WebSocket session ended")
+        logger.info(
+            "conn %d: session ended, lived %.1f s",
+            conn_id, time.perf_counter() - t_accept,
+        )
         try:
             await ws.close()
         except Exception:

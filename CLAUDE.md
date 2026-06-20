@@ -70,3 +70,7 @@ Today the SI is **generic** (the Sparrow persona carries no per-user data), so a
 ## Run
 - Backend: `cd backend && pip install -r requirements.txt && python main.py` → `:8000` (pre-warms the pool on startup).
 - Frontend: `cd frontend && npm install && npm run dev` → `:5173`.
+
+
+when i stop the current running session and start immidiatallt i found some major big number in ttfb from cient side and ans server side too. 
+will solve this in next sitting .
