@@ -71,6 +71,19 @@ Today the SI is **generic** (the Sparrow persona carries no per-user data), so a
 - Backend: `cd backend && pip install -r requirements.txt && python main.py` → `:8000` (pre-warms the pool on startup).
 - Frontend: `cd frontend && npm install && npm run dev` → `:5173`.
 
+## Investigation: reconnect TTFB — RESOLVED (not a bug)
+Earlier observation: stopping a session and immediately reconnecting seemed to show a
+big jump in first-audio TTFB (client and server side). Investigated with the new
+per-connection logging (`backend/server.log`, which records each session's **idle age
+at checkout** and **server-first-audio**). Finding:
+- **No reconnect bug.** Idle age does **not** correlate with server-first-audio — in
+  one run the oldest, most-idle session (170s) was the *fastest* (448ms). The
+  server-side number just varies (~450–1280ms) with normal Gemini first-token timing.
+- The dashboard's **perceived** (client) number is, by design, `server TTFB + ~500ms
+  VAD silence tail + network`. So it reads ~1.5–1.9s while pure Gemini is ~0.4–1.3s —
+  that gap is the unavoidable `VAD_SILENCE_DURATION_MS` wait, not a regression.
+- Warm-pool handshake stays sub-millisecond on reconnect; the pool is working.
 
-when i stop the current running session and start immidiatallt i found some major big number in ttfb from cient side and ans server side too. 
-will solve this in next sitting .
+Levers if perceived latency must drop later (all deferred — current latency accepted):
+lower `VAD_SILENCE_DURATION_MS` (risks clipping users mid-pause) or make Google Search
+grounding conditional via prompt (likely source of the per-turn variance).
