@@ -111,6 +111,7 @@ The frontend starts on `http://localhost:5173`.
 
 `backend/idle_session_probe.py` is a throwaway probe that connects, stays silent, and logs the idle lifetime + `go_away` timing — run it to tune `POOL_MAX_AGE_S` and confirm resumption behavior.
 
+
 ## Audio
 
 | Direction | Sample Rate | Format | Encoding |
