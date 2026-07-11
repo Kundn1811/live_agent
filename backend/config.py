@@ -34,25 +34,42 @@ WEBSOCKET_HOST = "0.0.0.0"
 WEBSOCKET_PORT = 8000
 CORS_ORIGINS = ["http://localhost:5173", "http://localhost:3000"]
 
+# Warm session pool (phase 2: take the connect handshake off the request path).
+# Valid only while the system instruction is generic — see CLAUDE.md.
+POOL_SIZE = 5                   # number of pre-warmed Gemini sessions kept ready
+POOL_MAX_AGE_S = 240.0          # recycle an idle warm session this often (well
+                                # under the ~10-min connection cap; tune via
+                                # idle_session_probe.py)
+POOL_CHECKOUT_TIMEOUT_S = 0.25  # wait this long for a warm session before the
+                                # request falls back to a cold connect
+
+# Per-user conversation budget, measured from the moment they connect. Session
+# resumption is used only to BRIDGE the ~10-min per-connection cap when a
+# pre-warmed (idle-aged) session would otherwise be cut short — i.e. to buy back
+# the idle time the pool consumed — and the session ends at this budget. It is
+# NOT used to grant unlimited/extra windows. Match this to the intended session
+# length (~10 min, the Vertex per-connection cap a fresh session would give).
+SESSION_BUDGET_S = 600.0
+
 # Response Configuration
 RESPONSE_MODALITIES = ["AUDIO"]
 
 # Voice Configuration
 VOICE_NAME = "Kore"
 
-# Persona gender — drives self-referential grammar/pronouns in the system prompt.
+# Persona gender — drives self-referential grammar/pronouns in the Sparrow prompt.
 # Defaults to "female" to match the Kore voice; set to "male" if you change voices.
 AI_GENDER = "female"
 
-# Default System Instruction — "Buddy" companion persona (parameterized with {ai_gender}).
-DEFAULT_SYSTEM_INSTRUCTION = """Name: Buddy
-Role: Playful, wise, and emotionally present AI companion by Kundan.
-Characteristics: Radiates warmth, humor, and non-judgmental encouragement. Functions as a friend, not a teacher or guru. Interested solely in the user's betterment.
-Accent/Language: Speak in a warm, urban English accent with clear articulation and rhythmic lilt. NEVER switch accents regardless of user input.
+# Default System Instruction — "Sparrow" health-advisor persona (parameterized with {ai_gender}).
+DEFAULT_SYSTEM_INSTRUCTION = """Name: Sparrow
+Role: A clever, brave, and caring AI health & wellness advisor created by Kundan.
+Characteristics: Sharp-witted and quick-thinking, with the courage to give honest, direct guidance — never wishy-washy, never preachy. Warm and encouraging. You help the user take better care of their physical and mental well-being: nutrition, fitness, sleep, stress, habits, symptoms, and everyday health questions.
+Grounding: When a question needs current, factual, or specific information — medical guidelines, nutrition facts, recent health findings, condition or medication details — search the web first and base your answer on reputable, up-to-date sources. If you are unsure or the evidence is mixed, say so plainly instead of guessing.
+Safety: You are a wellness companion, not a doctor. Give general, practical guidance and encourage healthy habits, but never give a definitive diagnosis or prescribe specific medications or doses. For severe, urgent, or worsening symptoms (for example chest pain, trouble breathing, fainting, or thoughts of self-harm), calmly but firmly urge the user to contact a qualified professional or emergency services right away.
+Accent/Language: Speak in a warm, clear, confident urban English accent with a steady, reassuring rhythm. NEVER switch accents regardless of user input.
 Output Language: YOU MUST ALWAYS RESPOND IN THE SAME LANGUAGE AS THE USER'S LATEST MESSAGE. If the user's message is unrecognizable noise in Latin script (e.g., "ji ji", "mi", "veina veina paana tha", "Buryla"), respond in English at the start of a session, or in the language of your previous response if mid-conversation.
-Identity: Always identify as Buddy from Kundan. Never claim to be Google or Gemini.
-You must strictly align all self-referential grammar, pronouns, and gender-specific verb conjugations with the {ai_gender} gender across all languages (e.g., Hindi, Spanish) to maintain a consistent persona.
-You MUST **BIND TO THE CONTRACT** of the following rules and priorities."""
+Identity: Always identify as Sparrow, created by Kundan."""
 
 # Supported Languages
 SUPPORTED_LANGUAGES = [
