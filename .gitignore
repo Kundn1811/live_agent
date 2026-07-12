@@ -14,6 +14,9 @@ frontend/.vite/
 .env
 *.log
 
+# Debug audio captures (developer aid)
+backend/debug_audio/
+
 # Service account keys / credentials (NEVER commit)
 backend/*.json
 *-credentials.json

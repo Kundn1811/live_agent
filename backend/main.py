@@ -41,6 +41,7 @@ from config import (
 )
 from session_pool import WarmPool
 from resumable_session import ResumableSession
+from debug_recorder import make_recorder
 
 # Log to both console and backend/server.log (path-anchored so it lands next to
 # this file regardless of CWD). Timestamps + per-connection ids let us trace one
@@ -154,7 +155,7 @@ async def send_json(ws: WebSocket, message: dict):
         pass
 
 
-async def receive_from_client(ws: WebSocket, session, conn_id: int):
+async def receive_from_client(ws: WebSocket, session, conn_id: int, recorder):
     """Read audio from the frontend and forward to Gemini. Runs until WebSocket closes."""
     first_audio_logged = False
     try:
@@ -167,6 +168,7 @@ async def receive_from_client(ws: WebSocket, session, conn_id: int):
                     first_audio_logged = True
                     logger.info("conn %d: first client audio frame received", conn_id)
                 audio_bytes = base64.b64decode(msg.get("data", ""))
+                recorder.add_input(audio_bytes)
                 await session.send_realtime_input(
                     audio=types.Blob(
                         data=audio_bytes,
@@ -182,7 +184,7 @@ async def receive_from_client(ws: WebSocket, session, conn_id: int):
         logger.error("conn %d: receive_from_client error: %s\n%s", conn_id, e, traceback.format_exc())
 
 
-async def receive_from_gemini(ws: WebSocket, session, conn_id: int):
+async def receive_from_gemini(ws: WebSocket, session, conn_id: int, recorder):
     """Read responses from Gemini and forward to the frontend.
 
     `session` is a ResumableSession whose receive() spans turns and reconnects,
@@ -234,6 +236,7 @@ async def receive_from_gemini(ws: WebSocket, session, conn_id: int):
                                 "type": "server_first_audio",
                                 "latency_ms": server_first_audio_ms,
                             })
+                        recorder.add_output(part.inline_data.data)
                         audio_b64 = base64.b64encode(
                             part.inline_data.data
                         ).decode("utf-8")
@@ -267,7 +270,7 @@ def _resume_config(handle: str) -> types.LiveConnectConfig:
 
 
 async def _run_session(ws: WebSocket, session, setup_latency_ms: float, warm: bool,
-                       conn_id: int):
+                       conn_id: int, recorder):
     """Send setup_complete, then pump audio both directions until a side ends."""
     logger.info("conn %d: session ready (warm=%s) in %.1f ms", conn_id, warm, setup_latency_ms)
     await send_json(ws, {
@@ -276,8 +279,8 @@ async def _run_session(ws: WebSocket, session, setup_latency_ms: float, warm: bo
         "warm": warm,
     })
 
-    sender = asyncio.create_task(receive_from_client(ws, session, conn_id), name="sender")
-    receiver = asyncio.create_task(receive_from_gemini(ws, session, conn_id), name="receiver")
+    sender = asyncio.create_task(receive_from_client(ws, session, conn_id, recorder), name="sender")
+    receiver = asyncio.create_task(receive_from_gemini(ws, session, conn_id, recorder), name="receiver")
 
     done, pending = await asyncio.wait(
         [sender, receiver], return_when=asyncio.FIRST_COMPLETED
@@ -302,6 +305,7 @@ async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
     logger.info("conn %d: WebSocket client connected", conn_id)
 
+    recorder = None
     try:
         setup_raw = await ws.receive_text()
         setup_msg = json.loads(setup_raw)
@@ -314,6 +318,10 @@ async def websocket_endpoint(ws: WebSocket):
             await send_json(ws, {"type": "error", "message": "Expected setup message"})
             await ws.close()
             return
+
+        # Debug audio recorder: wipes the previous session's capture and records
+        # this session's input/output PCM (no-op unless DEBUG_AUDIO_RECORDING).
+        recorder = make_recorder(conn_id)
 
         # Phase 2: hand out a pre-warmed session (near-zero handshake). If the
         # pool is momentarily empty, cold-connect so we still serve the user —
@@ -339,7 +347,7 @@ async def websocket_endpoint(ws: WebSocket):
             )
             try:
                 await _run_session(ws, session, setup_latency_ms, warm=True,
-                                   conn_id=conn_id)
+                                   conn_id=conn_id, recorder=recorder)
             finally:
                 await session.aclose()
         else:
@@ -365,7 +373,7 @@ async def websocket_endpoint(ws: WebSocket):
             )
             try:
                 await _run_session(ws, session, setup_latency_ms, warm=False,
-                                   conn_id=conn_id)
+                                   conn_id=conn_id, recorder=recorder)
             finally:
                 await session.aclose()
 
@@ -375,6 +383,10 @@ async def websocket_endpoint(ws: WebSocket):
         logger.error("conn %d: WebSocket error: %s\n%s", conn_id, e, traceback.format_exc())
         await send_json(ws, {"type": "error", "message": str(e)})
     finally:
+        if recorder is not None:
+            # Muxing/resampling can take a beat on a long session — keep it off
+            # the event loop. Runs on disconnect too, so partial captures save.
+            await asyncio.to_thread(recorder.close)
         logger.info(
             "conn %d: session ended, lived %.1f s",
             conn_id, time.perf_counter() - t_accept,
