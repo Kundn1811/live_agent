@@ -11,6 +11,9 @@ Browser (React + Vite) <-- WebSocket --> FastAPI backend <-- google-genai --> Ge
    24kHz PCM playback <----
 ```
 
+## LiveKit migration (in progress)
+A LiveKit Agents version lives in `agent/`, side-by-side with `backend/` until cutover. Plan + milestone status: `docs/livekit-migration-plan.md`; implementation docs: `agent/README.md`. Keep both updated as milestones land.
+
 ## Layout
 - `backend/main.py` — FastAPI app + `lifespan` (starts/stops the pool), the `/ws` endpoint, and the audio pump (`receive_from_client` / `receive_from_gemini`). `build_live_config()` builds the `LiveConnectConfig` (with `session_resumption` enabled and the `google_search` tool attached).
 - `backend/session_pool.py` — `WarmPool`: keeper tasks hold pre-opened sessions, `checkout()` hands out the oldest ready one, idle sessions recycle by age.
