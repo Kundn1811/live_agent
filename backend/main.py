@@ -11,6 +11,7 @@ import os
 import time
 import traceback
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,6 +58,18 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
+
+# Per-session latency metrics, appended as JSON Lines for later comparison
+# (one record per session's first turn — the client ships a consolidated record
+# at first-audio). Path-anchored next to this file, like server.log.
+METRICS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "metrics.jsonl")
+
+
+def _append_metrics(record: dict):
+    """Append one metrics record as a JSON line. Runs off the event loop."""
+    with open(METRICS_PATH, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+
 
 # Warm pool of pre-opened Gemini sessions, started/stopped with the app.
 pool = None
@@ -175,6 +188,27 @@ async def receive_from_client(ws: WebSocket, session, conn_id: int, recorder):
                         mime_type=f"audio/pcm;rate={INPUT_SAMPLE_RATE}",
                     )
                 )
+            elif msg.get("type") == "ping":
+                # RTT probe: echo the client's clock back immediately, plus how
+                # long we held the message, so the client can subtract server
+                # time and isolate the wire round-trip.
+                recv = time.perf_counter()
+                await send_json(ws, {
+                    "type": "pong",
+                    "client_t0": msg.get("t0"),
+                    "server_hold_ms": round((time.perf_counter() - recv) * 1000, 3),
+                })
+            elif msg.get("type") == "metrics":
+                # Consolidated per-session latency record from the client; persist
+                # for later comparison. Client-side and server-relayed numbers are
+                # taken as-sent (the backend originated the server numbers anyway).
+                record = {
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "conn_id": conn_id,
+                    **{k: v for k, v in msg.items() if k != "type"},
+                }
+                await asyncio.to_thread(_append_metrics, record)
+                logger.info("conn %d: metrics recorded %s", conn_id, json.dumps(record))
             elif msg.get("type") == "stop":
                 logger.info("conn %d: client requested stop", conn_id)
                 break
