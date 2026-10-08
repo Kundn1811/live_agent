@@ -14,6 +14,12 @@ frontend/.vite/
 .env
 *.log
 
+# Per-session latency metrics (experiment output, regenerated at runtime)
+backend/metrics.jsonl
+
+# Debug audio captures (developer aid)
+backend/debug_audio/
+
 # Service account keys / credentials (NEVER commit)
 backend/*.json
 *-credentials.json

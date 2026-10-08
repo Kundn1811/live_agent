@@ -10,10 +10,11 @@ export default function useAudioCapture({ onAudioChunk, onSpeechActivity }) {
   const streamRef = useRef(null);
   const isMutedRef = useRef(false);
 
-  // Track speech activity via volume level
-  const activityThreshold = 0.01;
-  const silenceFrameCountRef = useRef(0);
-  const silenceFrameThreshold = 10; // frames of silence before considered silent
+  // Speech-activity state for time-based end-of-speech detection.
+  //  - lastVoicedAtRef: performance.now() of the most recent voiced frame.
+  //  - speakingRef: are we inside a voiced run? Gates the single silent edge.
+  const lastVoicedAtRef = useRef(null);
+  const speakingRef = useRef(false);
 
   const start = useCallback(async () => {
     try {
@@ -23,7 +24,9 @@ export default function useAudioCapture({ onAudioChunk, onSpeechActivity }) {
           channelCount: config.audioChannels,
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true,
+          // AGC ramps gain up during pauses, pushing the noise floor over the
+          // VAD threshold so silence reads as speech — off for reliable EoS.
+          autoGainControl: false,
         },
       });
       streamRef.current = stream;
@@ -42,21 +45,31 @@ export default function useAudioCapture({ onAudioChunk, onSpeechActivity }) {
 
         const inputData = event.inputBuffer.getChannelData(0);
 
-        // Detect speech activity
-        let maxAmplitude = 0;
+        // Speech activity via short-term RMS energy (steadier than peak — one
+        // transient sample no longer flags a whole 256ms frame as speech). We
+        // emit `true` on every voiced frame (App timestamps each), and a single
+        // `false` once the gap since the last voiced frame exceeds vadSilenceMs.
+        // Time-based, so it fires ~400ms into a pause regardless of frame size —
+        // unlike the old 10-frame count (2.56s at 4096/16k), which was longer
+        // than Gemini's whole response so end-of-speech never fired in time.
+        let sumSquares = 0;
         for (let i = 0; i < inputData.length; i++) {
-          const abs = Math.abs(inputData[i]);
-          if (abs > maxAmplitude) maxAmplitude = abs;
+          sumSquares += inputData[i] * inputData[i];
         }
+        const rms = Math.sqrt(sumSquares / inputData.length);
+        const now = performance.now();
 
-        if (maxAmplitude > activityThreshold) {
-          silenceFrameCountRef.current = 0;
+        if (rms > config.vadEnergyThreshold) {
+          lastVoicedAtRef.current = now;
+          speakingRef.current = true;
           onSpeechActivity?.(true);
-        } else {
-          silenceFrameCountRef.current++;
-          if (silenceFrameCountRef.current >= silenceFrameThreshold) {
-            onSpeechActivity?.(false);
-          }
+        } else if (
+          speakingRef.current &&
+          lastVoicedAtRef.current != null &&
+          now - lastVoicedAtRef.current >= config.vadSilenceMs
+        ) {
+          speakingRef.current = false;
+          onSpeechActivity?.(false);
         }
 
         // Convert float32 to 16-bit PCM
@@ -104,7 +117,8 @@ export default function useAudioCapture({ onAudioChunk, onSpeechActivity }) {
       streamRef.current = null;
     }
     setIsCapturing(false);
-    silenceFrameCountRef.current = 0;
+    lastVoicedAtRef.current = null;
+    speakingRef.current = false;
   }, []);
 
   const toggleMute = useCallback(() => {

@@ -27,7 +27,7 @@ AUDIO_ENCODING = "pcm"  # Raw PCM, little-endian
 VAD_START_OF_SPEECH_SENSITIVITY = "START_SENSITIVITY_LOW"
 VAD_END_OF_SPEECH_SENSITIVITY = "END_SENSITIVITY_HIGH"
 VAD_PREFIX_PADDING_MS = 300
-VAD_SILENCE_DURATION_MS = 500
+VAD_SILENCE_DURATION_MS = 400
 
 # WebSocket Configuration
 WEBSOCKET_HOST = "0.0.0.0"
@@ -36,8 +36,8 @@ CORS_ORIGINS = ["http://localhost:5173", "http://localhost:3000"]
 
 # Warm session pool (phase 2: take the connect handshake off the request path).
 # Valid only while the system instruction is generic — see CLAUDE.md.
-POOL_SIZE = 5                   # number of pre-warmed Gemini sessions kept ready
-POOL_MAX_AGE_S = 240.0          # recycle an idle warm session this often (well
+POOL_SIZE = 2                   # number of pre-warmed Gemini sessions kept ready
+POOL_MAX_AGE_S = 360.0          # recycle an idle warm session this often (well
                                 # under the ~10-min connection cap; tune via
                                 # idle_session_probe.py)
 POOL_CHECKOUT_TIMEOUT_S = 0.25  # wait this long for a warm session before the
@@ -50,6 +50,15 @@ POOL_CHECKOUT_TIMEOUT_S = 0.25  # wait this long for a warm session before the
 # NOT used to grant unlimited/extra windows. Match this to the intended session
 # length (~10 min, the Vertex per-connection cap a fresh session would give).
 SESSION_BUDGET_S = 600.0
+
+# Debug audio recording (developer aid). When enabled, each session's raw
+# input (16kHz) and output (24kHz) PCM is captured and muxed to WAV files under
+# DEBUG_AUDIO_DIR on session close. Only the MOST RECENT session is kept — a new
+# session wipes the dir before recording. Disable in prod. See debug_recorder.py.
+DEBUG_AUDIO_RECORDING = os.environ.get(
+    "DEBUG_AUDIO_RECORDING", "true"
+).lower() in ("1", "true", "yes", "on")
+DEBUG_AUDIO_DIR = os.path.join(os.path.dirname(__file__), "debug_audio")
 
 # Response Configuration
 RESPONSE_MODALITIES = ["AUDIO"]

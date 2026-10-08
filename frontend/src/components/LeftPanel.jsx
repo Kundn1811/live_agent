@@ -14,11 +14,18 @@ export default function LeftPanel({
   onToggleMute,
   modelSpeaking,
   setupLatencyMs,
-  clientFirstAudioMs,
+  perceivedFirstMs,
+  perceivedLastMs,
   serverFirstAudioMs,
-  networkDeltaMs,
+  deltaFirstMs,
+  deltaLastMs,
+  eosEdges,
+  connectMs,
+  rttMs,
 }) {
   const fmtMs = (v) => (v != null ? `${v} ms` : '—');
+  const fmtSigned = (v) => (v != null ? `${v > 0 ? '+' : ''}${v} ms` : '—');
+  const fmtNum = (v) => (v != null ? `${v}` : '—');
   const statusColor = {
     connected: 'var(--accent-green)',
     connecting: 'var(--accent-yellow)',
@@ -177,16 +184,36 @@ export default function LeftPanel({
           <span className="latency-value">{fmtMs(setupLatencyMs)}</span>
         </div>
         <div className="latency-row">
-          <span className="latency-name">First audio · perceived (client)</span>
-          <span className="latency-value">{fmtMs(clientFirstAudioMs)}</span>
+          <span className="latency-name">Perceived · first EoS</span>
+          <span className="latency-value">{fmtMs(perceivedFirstMs)}</span>
+        </div>
+        <div className="latency-row">
+          <span className="latency-name">Perceived · last EoS</span>
+          <span className="latency-value">{fmtMs(perceivedLastMs)}</span>
         </div>
         <div className="latency-row">
           <span className="latency-name">First audio · Gemini (server)</span>
           <span className="latency-value">{fmtMs(serverFirstAudioMs)}</span>
         </div>
         <div className="latency-row">
-          <span className="latency-name">Δ (VAD + network)</span>
-          <span className="latency-value">{fmtMs(networkDeltaMs)}</span>
+          <span className="latency-name">Δ · first EoS</span>
+          <span className="latency-value">{fmtSigned(deltaFirstMs)}</span>
+        </div>
+        <div className="latency-row">
+          <span className="latency-name">Δ · last EoS</span>
+          <span className="latency-value">{fmtSigned(deltaLastMs)}</span>
+        </div>
+        <div className="latency-row">
+          <span className="latency-name">EoS edges</span>
+          <span className="latency-value">{fmtNum(eosEdges)}</span>
+        </div>
+        <div className="latency-row">
+          <span className="latency-name">WS connect</span>
+          <span className="latency-value">{fmtMs(connectMs)}</span>
+        </div>
+        <div className="latency-row">
+          <span className="latency-name">Round-trip (RTT)</span>
+          <span className="latency-value">{fmtMs(rttMs)}</span>
         </div>
       </div>
 
