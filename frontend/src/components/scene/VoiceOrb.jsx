@@ -234,6 +234,10 @@ function Scene({ palette, live, pulseRef }) {
       groupRef.current.rotation.x += (-state.pointer.y * 0.2 - groupRef.current.rotation.x) * 0.04;
     }
 
+    // Portrait screens: back the camera off so the core still fits the narrow width.
+    const aspect = state.size.width / Math.max(1, state.size.height);
+    state.camera.position.z = Math.max(CAMERA_Z, 6.3 / aspect);
+
     // ---- shared point-size scale (world size → pixels) ----
     const scale =
       (state.size.height * state.gl.getPixelRatio()) / (2 * Math.tan((state.camera.fov * Math.PI) / 360));
