@@ -82,7 +82,7 @@ export default function HistoryPanel({ sessions, onClose, onCleared }) {
                 >
                   <span className="history-item-title">{titleOf(s)}</span>
                   <span className="history-item-meta">
-                    {fmtWhen(s.startedAt)} · {fmtDuration(s)} · {s.turns.length} turns
+                    {fmtWhen(s.startedAt)} · {fmtDuration(s)} · {s.turns.length} {s.turns.length === 1 ? 'turn' : 'turns'}
                   </span>
                 </button>
 
