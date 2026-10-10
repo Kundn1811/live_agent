@@ -50,8 +50,10 @@ export default function CenterPanel({
         />
       </div>
 
-      <SecretWordmark reverse={!devMode} onSequence={onSecret} />
-      {devMode && <span className="dev-badge">DEV</span>}
+      <div className="brand-row">
+        <SecretWordmark reverse={!devMode} onSequence={onSecret} />
+        {devMode && <span className="dev-badge">DEV</span>}
+      </div>
 
       {/* The orb itself is a canvas mesh, so give keyboard / screen-reader users a real button. */}
       {!sessionActive && (
