@@ -9,6 +9,9 @@ import './App.css';
 
 // Round to 1 decimal — perceived numbers are integers but the server number
 // carries a decimal, so a raw subtraction yields float noise (e.g. -615.9000001).
+// Debug/latency panel. Hidden for the client-facing UI; batch 4 wires up how to reveal it.
+const DEV_MODE = false;
+
 const round1 = (v) => Math.round(v * 10) / 10;
 
 export default function App() {
@@ -226,7 +229,11 @@ export default function App() {
       connect(config.defaultSourceLanguage, config.defaultTargetLanguage);
       setSessionActive(true);
     } catch (err) {
-      addSystemMessage(`Failed to start session: ${err.message}`);
+      addSystemMessage(
+        err?.name === 'NotAllowedError'
+          ? 'Microphone is blocked. Allow mic access, then tap the orb again.'
+          : `Couldn't start: ${err.message}`,
+      );
     }
   }, [startCapture, connect, addSystemMessage]);
 
@@ -242,6 +249,15 @@ export default function App() {
   const handleStopSession = useCallback(() => {
     endSession();
   }, [endSession]);
+
+  // The side panel used to show a dropped connection; now the orb just goes quiet,
+  // so reset to the start state and say why.
+  useEffect(() => {
+    if (sessionActive && connectionStatus === 'disconnected') {
+      endSession();
+      setNotice('Connection lost. Tap the orb to try again.');
+    }
+  }, [sessionActive, connectionStatus, endSession]);
 
   useEffect(() => {
     return () => {
@@ -265,24 +281,26 @@ export default function App() {
 
   return (
     <div className="app-layout">
-      <LeftPanel
-        connectionStatus={connectionStatus}
-        sessionActive={sessionActive}
-        onStartSession={startSession}
-        onStopSession={handleStopSession}
-        isMuted={isMuted}
-        onToggleMute={toggleMute}
-        modelSpeaking={effectiveModelSpeaking}
-        setupLatencyMs={setupLatencyMs}
-        perceivedFirstMs={perceivedFirstMs}
-        perceivedLastMs={perceivedLastMs}
-        serverFirstAudioMs={serverFirstAudioMs}
-        deltaFirstMs={deltaFirstMs}
-        deltaLastMs={deltaLastMs}
-        eosEdges={eosEdges}
-        connectMs={connectMs}
-        rttMs={rttMs}
-      />
+      {DEV_MODE && (
+        <LeftPanel
+          connectionStatus={connectionStatus}
+          sessionActive={sessionActive}
+          onStartSession={startSession}
+          onStopSession={handleStopSession}
+          isMuted={isMuted}
+          onToggleMute={toggleMute}
+          modelSpeaking={effectiveModelSpeaking}
+          setupLatencyMs={setupLatencyMs}
+          perceivedFirstMs={perceivedFirstMs}
+          perceivedLastMs={perceivedLastMs}
+          serverFirstAudioMs={serverFirstAudioMs}
+          deltaFirstMs={deltaFirstMs}
+          deltaLastMs={deltaLastMs}
+          eosEdges={eosEdges}
+          connectMs={connectMs}
+          rttMs={rttMs}
+        />
+      )}
       <CenterPanel
         sessionActive={sessionActive}
         connectionStatus={connectionStatus}
@@ -291,6 +309,9 @@ export default function App() {
         muted={isMuted}
         pulseRef={wordPulseRef}
         notice={notice}
+        onStart={startSession}
+        onEnd={handleStopSession}
+        onToggleMute={toggleMute}
       />
     </div>
   );

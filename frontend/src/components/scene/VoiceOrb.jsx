@@ -147,7 +147,11 @@ function Scene({ palette, live, pulseRef }) {
     heads: RINGS.map(() => 0),
     spinX: 0,
     spinY: 0,
+    hover: 0,
+    cursor: false,
   });
+  // Pointer is over the core (tracked by r3f events on the invisible hit sphere).
+  const hovering = useRef(false);
   const tmp = useMemo(() => new THREE.Vector3(), []);
 
   useFrame((state, delta) => {
@@ -171,6 +175,14 @@ function Scene({ palette, live, pulseRef }) {
     levelIn = L.muted ? 0 : levelIn / BAND_COUNT;
     levelOut /= BAND_COUNT;
 
+    // Hover affordance: only while a tap would start a session.
+    const wantHover = hovering.current && L.interactive;
+    s.hover += ((wantHover ? 1 : 0) - s.hover) * (1 - Math.exp(-dt * 8));
+    if (wantHover !== s.cursor) {
+      s.cursor = wantHover;
+      document.body.style.cursor = wantHover ? 'pointer' : '';
+    }
+
     // ---- mode mixes ----
     s.speak += ((L.modelSpeaking ? 1 : 0) - s.speak) * (1 - Math.exp(-dt * 6));
     const mic = L.sessionActive && !L.muted ? Math.max(L.userSpeaking ? 0.85 : 0, clamp01(levelIn * 5)) : 0;
@@ -190,8 +202,9 @@ function Scene({ palette, live, pulseRef }) {
     // ---- core: pump per frequency band ----
     const pos = geometry.attributes.position.array;
     const { dirs, band, phase } = cloud;
-    const breathe = 0.012 * Math.sin(t * 1.1);
-    const common = 1 + breathe + s.kick * 0.07 - s.listen * 0.03;
+    // Offline, the core breathes a little deeper and swells on hover: "tap me".
+    const breathe = (0.012 + (L.interactive ? 0.018 : 0)) * Math.sin(t * 1.1);
+    const common = 1 + breathe + s.kick * 0.07 - s.listen * 0.03 + s.hover * 0.045;
     for (let i = 0; i < POINT_COUNT; i++) {
       const b = band[i];
       const w = 0.8 + 0.2 * Math.sin(t * 7 + phase[i]);
@@ -208,7 +221,8 @@ function Scene({ palette, live, pulseRef }) {
     s.spinX += dt * 0.05;
     if (pointsRef.current) {
       pointsRef.current.rotation.set(s.spinX, s.spinY, 0);
-      pointsRef.current.material.size = 0.05 * (1 + levelOut * s.speak * 0.5 + s.kick * 0.3);
+      pointsRef.current.material.size =
+        0.05 * (1 + levelOut * s.speak * 0.5 + s.kick * 0.3 + s.hover * 0.25);
     }
     if (shellRef.current) {
       shellRef.current.scale.setScalar(1.02 * (1 + levelOut * s.speak * 0.12 + s.kick * 0.05));
@@ -325,6 +339,23 @@ function Scene({ palette, live, pulseRef }) {
       </points>
 
       <group ref={groupRef}>
+        {/* Invisible hit sphere: the swarm is just points, which can't be picked. */}
+        <mesh
+          onClick={(e) => {
+            if (!live.current.interactive) return;
+            e.stopPropagation();
+            live.current.onCoreTap?.();
+          }}
+          onPointerOver={() => {
+            hovering.current = true;
+          }}
+          onPointerOut={() => {
+            hovering.current = false;
+          }}
+        >
+          <sphereGeometry args={[1.8, 16, 16]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
         <points ref={pointsRef} geometry={geometry}>
           <pointsMaterial
             size={0.05}
@@ -361,6 +392,8 @@ function Scene({ palette, live, pulseRef }) {
  * @param {boolean} props.modelSpeaking
  * @param {boolean} props.muted
  * @param {{current:number}} props.pulseRef  Bump `.current` once per transcript chunk to kick the core.
+ * @param {boolean} [props.interactive]  When true, hovering the core invites a tap and tapping calls `onCoreTap`.
+ * @param {() => void} [props.onCoreTap]
  */
 export default function VoiceOrb({
   palette = DEFAULT_SCENE,
@@ -369,10 +402,12 @@ export default function VoiceOrb({
   modelSpeaking,
   muted,
   pulseRef,
+  interactive = false,
+  onCoreTap,
 }) {
   // The scene reads this every frame; keeping it in a ref avoids re-rendering the canvas.
   const live = useRef({});
-  live.current = { sessionActive, userSpeaking, modelSpeaking, muted };
+  live.current = { sessionActive, userSpeaking, modelSpeaking, muted, interactive, onCoreTap };
 
   return (
     <Canvas
