@@ -1,5 +1,6 @@
 import React from 'react';
 import VoiceOrb from './scene/VoiceOrb.jsx';
+import SecretWordmark from './SecretWordmark.jsx';
 
 function stateLabel({ connectionStatus, userSpeaking, modelSpeaking }) {
   if (connectionStatus === 'connecting') return 'Connecting';
@@ -30,6 +31,8 @@ export default function CenterPanel({
   onStart,
   onEnd,
   onToggleMute,
+  devMode,
+  onSecret,
 }) {
   const label = stateLabel({ connectionStatus, userSpeaking, modelSpeaking });
 
@@ -47,8 +50,9 @@ export default function CenterPanel({
         />
       </div>
 
-      <div className="brand">
-        Sparrow<span className="dot">.</span>
+      <div className="brand-row">
+        <SecretWordmark reverse={!devMode} onSequence={onSecret} />
+        {devMode && <span className="dev-badge">DEV</span>}
       </div>
 
       {/* The orb itself is a canvas mesh, so give keyboard / screen-reader users a real button. */}

@@ -322,14 +322,44 @@
 }
 
 /* Wordmark, top-left. Top-right is kept free for the info tag. */
-.brand {
+.brand-row {
   position: absolute;
   top: 20px;
   left: 24px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand {
   font-family: var(--font-display);
   font-size: 18px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  /* Open spacing keeps the letters easy to hit with a trackpad. */
+  letter-spacing: 0.16em;
+  /* The letters hide a gesture, so give no hint: no selection, no tap flash, default cursor. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.brand-letter {
+  /* Bigger invisible click area; the negative margin keeps the layout unchanged. */
+  display: inline-block;
+  padding: 9px 3px;
+  margin: -9px 0;
+}
+
+.dev-badge {
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 50%, transparent);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--color-accent);
+  pointer-events: none;
 }
 
 .brand .dot {
@@ -464,7 +494,7 @@
     margin-top: 0;
   }
 
-  .brand {
+  .brand-row {
     top: 16px;
     left: 16px;
   }
