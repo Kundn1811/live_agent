@@ -39,9 +39,9 @@ export default function LeftPanel({
     <div className="left-panel">
       <div className="panel-logo">
         <span className="logo-title">
-          Sparrow<span className="dot">.</span>
+          Developer<span className="dot">.</span>
         </span>
-        <span className="logo-subtitle">live voice agent</span>
+        <span className="logo-subtitle">live numbers</span>
       </div>
 
       <div className="connection-status">

@@ -7,19 +7,21 @@ import LeftPanel from './components/LeftPanel.jsx';
 import CenterPanel from './components/CenterPanel.jsx';
 import InfoTag from './components/InfoTag.jsx';
 import HistoryPanel from './components/HistoryPanel.jsx';
+import ConfirmDialog from './components/ConfirmDialog.jsx';
+import useDevMode from './hooks/useDevMode.js';
 import useSessionRecorder from './hooks/useSessionRecorder.js';
 import { loadSessions } from './sessionStore.js';
 import './App.css';
 
 // Round to 1 decimal — perceived numbers are integers but the server number
 // carries a decimal, so a raw subtraction yields float noise (e.g. -615.9000001).
-// Debug/latency panel. Hidden for the client-facing UI; batch 4 wires up how to reveal it.
-const DEV_MODE = false;
-
 const round1 = (v) => Math.round(v * 10) / 10;
 
 export default function App() {
   const [sessionActive, setSessionActive] = useState(false);
+  // Developer mode shows the latency / debug panel. A hidden gesture on the wordmark turns it on and off.
+  const [devMode, setDevMode] = useDevMode();
+  const [devPrompt, setDevPrompt] = useState(null); // null | 'enter' | 'exit'
 
   // Transcripts are not shown; errors surface as a one-line notice under the orb.
   const [notice, setNotice] = useState('');
@@ -305,7 +307,7 @@ export default function App() {
 
   return (
     <div className="app-layout">
-      {DEV_MODE && (
+      {devMode && (
         <LeftPanel
           connectionStatus={connectionStatus}
           sessionActive={sessionActive}
@@ -336,8 +338,27 @@ export default function App() {
         onStart={startSession}
         onEnd={handleStopSession}
         onToggleMute={toggleMute}
+        devMode={devMode}
+        onSecret={() => setDevPrompt(devMode ? 'exit' : 'enter')}
       />
       <InfoTag onTripleTap={openHistory} />
+      {devPrompt && (
+        <ConfirmDialog
+          title={devPrompt === 'enter' ? 'Switch to developer mode?' : 'Leave developer mode?'}
+          text={
+            devPrompt === 'enter'
+              ? 'Shows the live latency and connection numbers. It turns off when you close this tab.'
+              : 'Hides the latency and connection numbers.'
+          }
+          confirmLabel={devPrompt === 'enter' ? 'Yes, switch' : 'Yes, leave'}
+          cancelLabel={devPrompt === 'enter' ? 'Not now' : 'Stay'}
+          onConfirm={() => {
+            setDevMode(devPrompt === 'enter');
+            setDevPrompt(null);
+          }}
+          onCancel={() => setDevPrompt(null)}
+        />
+      )}
       {historySessions && (
         <HistoryPanel
           sessions={historySessions}

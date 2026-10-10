@@ -326,10 +326,29 @@
   position: absolute;
   top: 20px;
   left: 24px;
+  z-index: 2;
   font-family: var(--font-display);
   font-size: 18px;
   font-weight: 600;
   letter-spacing: 0.02em;
+  /* The letters hide a gesture, so give no hint: no selection, no tap flash, default cursor. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dev-badge {
+  position: absolute;
+  top: 24px;
+  left: 128px;
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 50%, transparent);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--color-accent);
+  pointer-events: none;
 }
 
 .brand .dot {
