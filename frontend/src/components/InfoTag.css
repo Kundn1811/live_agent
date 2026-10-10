@@ -163,6 +163,18 @@
   color: var(--color-text-dim);
 }
 
+.info-history {
+  margin-top: 14px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--color-text-dim);
+}
+
+.info-history b {
+  color: var(--color-accent);
+  font-family: var(--font-display);
+}
+
 .info-note {
   margin-top: 14px;
   padding-top: 12px;

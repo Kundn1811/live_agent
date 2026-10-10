@@ -4,6 +4,7 @@ import './InfoTag.css';
 const SEEN_KEY = 'sparrow:info-seen';
 const NUDGE_DELAY_MS = 1200;
 const NUDGE_DURATION_MS = 9000;
+const TAP_GAP_MS = 600;
 
 function readSeen() {
   try {
@@ -26,10 +27,12 @@ function markSeen() {
  * poking arrow for a few seconds. It stops when they tap the tag or when it times out, and
  * either way it's marked seen so it never comes back.
  */
-export default function InfoTag() {
+export default function InfoTag({ onTripleTap }) {
   const [open, setOpen] = useState(false);
   const [nudge, setNudge] = useState(false);
   const rootRef = useRef(null);
+  // Timestamps of the current run of quick taps (each within TAP_GAP_MS of the last).
+  const tapsRef = useRef([]);
 
   useEffect(() => {
     if (readSeen()) return undefined;
@@ -47,8 +50,19 @@ export default function InfoTag() {
   const toggle = useCallback(() => {
     setNudge(false);
     markSeen();
+
+    // Three quick taps in a row = open the saved sessions instead of toggling the card.
+    const now = performance.now();
+    const taps = tapsRef.current;
+    tapsRef.current = taps.length && now - taps[taps.length - 1] <= TAP_GAP_MS ? [...taps, now] : [now];
+    if (tapsRef.current.length >= 3) {
+      tapsRef.current = [];
+      setOpen(false);
+      onTripleTap?.();
+      return;
+    }
     setOpen((o) => !o);
-  }, []);
+  }, [onTripleTap]);
 
   // Close on outside press or Escape.
   useEffect(() => {
@@ -119,6 +133,11 @@ export default function InfoTag() {
             <span>React Three Fiber</span>
             <span>FastAPI</span>
           </div>
+
+          <p className="info-history">
+            Your last 10 conversations are saved in this browser only. To read them, tap the{' '}
+            <b>i</b> three times, quickly.
+          </p>
 
           <p className="info-note">Sparrow is an AI, not a doctor. Not for emergencies.</p>
         </div>

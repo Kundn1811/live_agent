@@ -6,6 +6,9 @@ import useAudioPlayback from './hooks/useAudioPlayback.js';
 import LeftPanel from './components/LeftPanel.jsx';
 import CenterPanel from './components/CenterPanel.jsx';
 import InfoTag from './components/InfoTag.jsx';
+import HistoryPanel from './components/HistoryPanel.jsx';
+import useSessionRecorder from './hooks/useSessionRecorder.js';
+import { loadSessions } from './sessionStore.js';
 import './App.css';
 
 // Round to 1 decimal — perceived numbers are integers but the server number
@@ -22,6 +25,10 @@ export default function App() {
   const [notice, setNotice] = useState('');
   // Bumped once per output-transcript chunk (~a word) so the orb can kick on each word.
   const wordPulseRef = useRef(0);
+  // Saved conversations (last 10, browser only). `historySessions` is a snapshot taken when the panel opens.
+  const [historySessions, setHistorySessions] = useState(null);
+  const noticeTimerRef = useRef(null);
+  const { begin: beginRecording, record, finish: finishRecording } = useSessionRecorder();
 
   const [userSpeaking, setUserSpeaking] = useState(false);
   const [modelSpeaking, setModelSpeaking] = useState(false);
@@ -139,13 +146,15 @@ export default function App() {
   }, [queueAudio]);
 
   // The user's transcript arrives once they've finished a phrase: that's the cue to stop "listening".
-  const handleInputTranscript = useCallback(() => {
+  const handleInputTranscript = useCallback((text) => {
+    record('user', text);
     setUserSpeaking(false);
-  }, []);
+  }, [record]);
 
-  const handleOutputTranscript = useCallback(() => {
+  const handleOutputTranscript = useCallback((text) => {
+    record('model', text);
     wordPulseRef.current += 1;
-  }, []);
+  }, [record]);
 
   const handleTurnComplete = useCallback(() => {
     setModelSpeaking(false);
@@ -225,6 +234,7 @@ export default function App() {
       connectMsRef.current = null;
       rttLastRef.current = null;
       rttMinRef.current = null;
+      beginRecording();
       await startCapture();
       // Backend still expects a setup message with languages but ignores them.
       connect(config.defaultSourceLanguage, config.defaultTargetLanguage);
@@ -236,20 +246,33 @@ export default function App() {
           : `Couldn't start: ${err.message}`,
       );
     }
-  }, [startCapture, connect, addSystemMessage]);
+  }, [startCapture, connect, addSystemMessage, beginRecording]);
 
   const endSession = useCallback(() => {
+    finishRecording();
     stopCapture();
     stopPlayback();
     disconnect();
     setSessionActive(false);
     setModelSpeaking(false);
     setUserSpeaking(false);
-  }, [stopCapture, stopPlayback, disconnect]);
+  }, [finishRecording, stopCapture, stopPlayback, disconnect]);
 
   const handleStopSession = useCallback(() => {
     endSession();
   }, [endSession]);
+
+  // Triple-tap on the info tag lands here: open the saved sessions, or say there are none.
+  const openHistory = useCallback(() => {
+    const list = loadSessions();
+    if (list.length) {
+      setHistorySessions(list);
+      return;
+    }
+    setNotice("You don't have any sessions yet.");
+    clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setNotice(''), 3500);
+  }, []);
 
   // The side panel used to show a dropped connection; now the orb just goes quiet,
   // so reset to the start state and say why.
@@ -314,7 +337,19 @@ export default function App() {
         onEnd={handleStopSession}
         onToggleMute={toggleMute}
       />
-      <InfoTag />
+      <InfoTag onTripleTap={openHistory} />
+      {historySessions && (
+        <HistoryPanel
+          sessions={historySessions}
+          onClose={() => setHistorySessions(null)}
+          onCleared={() => {
+            setHistorySessions(null);
+            setNotice('Sessions cleared.');
+            clearTimeout(noticeTimerRef.current);
+            noticeTimerRef.current = setTimeout(() => setNotice(''), 3500);
+          }}
+        />
+      )}
     </div>
   );
 }
