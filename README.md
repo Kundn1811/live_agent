@@ -126,3 +126,7 @@ docs/         plans and screenshots
 - **Search grounding.** In `us-central1` Google Search runs on Google's side. Some other regions send it back as a function call instead, which this app does not answer yet.
 - **Pin the SDK.** `google-genai` is not version-pinned in `requirements.txt`. Pin it (`>=1.0,<2`) before depending on it.
 - **Reconnect gap.** When Sparrow reconnects after the 10-minute limit, the last half-second of a reply can be lost, once per reconnect.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
