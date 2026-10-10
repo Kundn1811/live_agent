@@ -337,6 +337,32 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Dev server only (see SecretWordmark): shows the result of each gesture click. */
+.gesture-trace {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.gesture-trace.ok {
+  color: var(--color-accent-3);
+}
+
+.gesture-trace.bad {
+  color: var(--color-accent-2);
+}
+
 .dev-badge {
   position: absolute;
   top: 24px;

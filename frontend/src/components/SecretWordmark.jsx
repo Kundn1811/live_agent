@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 
 const WORD = 'Sparrow';
 // Longest allowed pause between two clicks before the sequence starts over.
@@ -19,6 +19,15 @@ const log = import.meta.env.DEV
 export default function SecretWordmark({ reverse, onSequence }) {
   const progressRef = useRef(0);
   const lastClickRef = useRef(0);
+  // Dev server only: the last click's result, shown under the name so you don't need the console.
+  const [trace, setTrace] = useState(null);
+  const traceTimerRef = useRef(null);
+  const show = (ok, text) => {
+    if (!import.meta.env.DEV) return;
+    setTrace({ ok, text });
+    clearTimeout(traceTimerRef.current);
+    traceTimerRef.current = setTimeout(() => setTrace(null), 4000);
+  };
 
   const order = WORD.split('').map((_, i) => (reverse ? WORD.length - 1 - i : i));
 
@@ -28,6 +37,7 @@ export default function SecretWordmark({ reverse, onSequence }) {
     if (lastClickRef.current && gap > MAX_GAP_MS) {
       log(`pause of ${(gap / 1000).toFixed(1)}s is over ${MAX_GAP_MS / 1000}s, started over`);
       progressRef.current = 0;
+      show(false, `pause over ${MAX_GAP_MS / 1000}s, started over`);
     }
     lastClickRef.current = now;
 
@@ -40,8 +50,10 @@ export default function SecretWordmark({ reverse, onSequence }) {
     if (WORD[index] === WORD[expectedIndex]) {
       progressRef.current += 1;
       log(`clicked ${clicked}: correct, ${progressRef.current}/${order.length} (${direction})`);
+      show(true, `${WORD[index]} ok ${progressRef.current}/${order.length}`);
     } else {
       progressRef.current = WORD[index] === WORD[order[0]] ? 1 : 0;
+      show(false, `${WORD[index]} wrong, wanted ${WORD[expectedIndex]}. start over`);
       log(
         `clicked ${clicked}: WRONG, expected ${expected}. ` +
           (progressRef.current === 1 ? 'Counted as a new start, 1/' + order.length : 'Started over, 0/' + order.length),
@@ -51,6 +63,7 @@ export default function SecretWordmark({ reverse, onSequence }) {
     if (progressRef.current === order.length) {
       progressRef.current = 0;
       log('sequence complete, opening the popup');
+      show(true, 'done, opening popup');
       onSequence();
     }
   };
@@ -65,6 +78,11 @@ export default function SecretWordmark({ reverse, onSequence }) {
       <span className="dot" aria-hidden="true">
         .
       </span>
+      {trace && (
+        <div className={`gesture-trace ${trace.ok ? 'ok' : 'bad'}`} aria-hidden="true">
+          {trace.text}
+        </div>
+      )}
     </div>
   );
 }
