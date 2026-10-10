@@ -76,7 +76,11 @@ export default function InfoTag() {
         aria-expanded={open}
         aria-controls="info-card"
       >
-        i
+        {/* Drawn rather than typeset: the display font's "i" is too thin to read as bold. */}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="5.5" r="2.4" fill="currentColor" />
+          <path d="M12 10.5V19" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+        </svg>
       </button>
 
       {nudge && !open && (
