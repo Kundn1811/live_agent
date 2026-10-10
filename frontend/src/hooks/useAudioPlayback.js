@@ -1,5 +1,6 @@
 import { useRef, useCallback, useState } from 'react';
 import config from '../config.js';
+import { analysers, createAnalyser } from '../audioLevels.js';
 
 export default function useAudioPlayback() {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -11,7 +12,13 @@ export default function useAudioPlayback() {
 
   const getAudioContext = useCallback(() => {
     if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
-      audioContextRef.current = new AudioContext({ sampleRate: config.outputSampleRate });
+      const ctx = new AudioContext({ sampleRate: config.outputSampleRate });
+      audioContextRef.current = ctx;
+      // All playback routes through one analyser so the 3D visual can read the
+      // model's voice energy; the analyser passes audio straight on to the speakers.
+      const analyser = createAnalyser(ctx);
+      analyser.connect(ctx.destination);
+      analysers.output = analyser;
     }
     return audioContextRef.current;
   }, []);
@@ -26,7 +33,7 @@ export default function useAudioPlayback() {
       const audioBuffer = bufferQueueRef.current.shift();
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(ctx.destination);
+      source.connect(analysers.output ?? ctx.destination);
 
       const startTime = Math.max(ctx.currentTime, nextPlayTimeRef.current);
       source.start(startTime);
@@ -95,6 +102,7 @@ export default function useAudioPlayback() {
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
       audioContextRef.current.close();
       audioContextRef.current = null;
+      analysers.output = null;
     }
   }, [stopPlayback]);
 

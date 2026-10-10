@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import config from '../config.js';
+import { analysers, createAnalyser } from '../audioLevels.js';
 
 export default function useAudioCapture({ onAudioChunk, onSpeechActivity }) {
   const [isCapturing, setIsCapturing] = useState(false);
@@ -90,6 +91,11 @@ export default function useAudioCapture({ onAudioChunk, onSpeechActivity }) {
         onAudioChunk?.(base64);
       };
 
+      // Tap the mic for the 3D visual (read-only branch, doesn't affect the send path).
+      const analyser = createAnalyser(audioContext);
+      source.connect(analyser);
+      analysers.input = analyser;
+
       source.connect(processor);
       processor.connect(audioContext.destination);
       setIsCapturing(true);
@@ -100,6 +106,7 @@ export default function useAudioCapture({ onAudioChunk, onSpeechActivity }) {
   }, [onAudioChunk, onSpeechActivity]);
 
   const stop = useCallback(() => {
+    analysers.input = null;
     if (processorRef.current) {
       processorRef.current.disconnect();
       processorRef.current = null;

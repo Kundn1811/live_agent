@@ -2,6 +2,9 @@
 
 Context for working in this repo. Read this before touching the backend session-open path, the warm pool, or the resumption wrapper.
 
+## How to reply
+Keep replies short. Use simple words. No long explanations unless asked. Lead with the answer or the action; skip background the user didn't ask for.
+
 ## What this is
 A low-latency, real-time **voice conversation agent** ("Sparrow") on **Google Gemini Live API** (`gemini-live-2.5-flash-native-audio`) via the **google-genai** Python SDK on **Vertex AI**. It began as a *translation* assistant; it is now a general live-communication agent running the **Sparrow** persona (`DEFAULT_SYSTEM_INSTRUCTION` in `config.py`) — a clever, brave **health & wellness advisor** that replies in the user's language. Three infra features matter: a **warm session pool** (takes the connect handshake off the request path), **bounded session resumption** (keeps a conversation alive past Gemini's ~10-min per-connection cap), and **Google Search grounding** (so health answers can be sourced from the live web).
 
@@ -21,7 +24,7 @@ A LiveKit Agents version lives in `agent/`, side-by-side with `backend/` until c
 - `backend/config.py` — all constants (model, audio rates, VAD, CORS, pool knobs `POOL_*`, `SESSION_BUDGET_S`, and the Sparrow `DEFAULT_SYSTEM_INSTRUCTION` + `AI_GENDER`).
 - `backend/idle_session_probe.py` — throwaway probe: connects, stays silent, logs idle lifetime + `go_away`/handle timing. Use it to tune `POOL_MAX_AGE_S` and validate resumption.
 - `backend/requirements.txt` — deps. **`google-genai` is unpinned**; pin it (`>=1.0,<2`) before building on the API surface.
-- `frontend/` — React/Vite. Mic capture + playback; backend does **no** audio processing, only base64 relay. Hooks: `useWebSocket.js` (gates audio until `setup_complete`), `useAudioCapture.js` (16kHz capture + VAD), `useAudioPlayback.js` (24kHz buffered playback). Still carries **vestigial translation UI** (language selectors, "Translating" labels) that the backend ignores — pending cleanup.
+- `frontend/` — React/Vite. Mic capture + playback; backend does **no** audio processing, only base64 relay. Hooks: `useWebSocket.js` (gates audio until `setup_complete`), `useAudioCapture.js` (16kHz capture + VAD), `useAudioPlayback.js` (24kHz buffered playback). UI follows the portfolio's design tokens (`--color-*`, Orbitron/Inter/JetBrains Mono) and shows **no transcripts**: the centre is a 3D voice orb (`components/scene/VoiceOrb.jsx`, react-three-fiber v8) driven by `audioLevels.js` analysers (mic = `input`, playback = `output`) plus a per-transcript-chunk pulse. Listening = orbiting electrons + inward motes; speaking = per-band core pump + particles thrown outward. The `setup` message still sends default languages (ignored by the backend).
 
 ## The session-open sequence (the part that matters)
 In `websocket_endpoint` (`backend/main.py`):

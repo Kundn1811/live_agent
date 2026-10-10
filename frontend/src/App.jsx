@@ -13,10 +13,11 @@ const round1 = (v) => Math.round(v * 10) / 10;
 
 export default function App() {
   const [sessionActive, setSessionActive] = useState(false);
-  const [sourceLanguage, setSourceLanguage] = useState(config.defaultSourceLanguage);
-  const [targetLanguage, setTargetLanguage] = useState(config.defaultTargetLanguage);
 
-  const [messages, setMessages] = useState([]);
+  // Transcripts are not shown; errors surface as a one-line notice under the orb.
+  const [notice, setNotice] = useState('');
+  // Bumped once per output-transcript chunk (~a word) so the orb can kick on each word.
+  const wordPulseRef = useRef(0);
 
   const [userSpeaking, setUserSpeaking] = useState(false);
   const [modelSpeaking, setModelSpeaking] = useState(false);
@@ -62,7 +63,7 @@ export default function App() {
   const rttMinRef = useRef(null);
 
   const addSystemMessage = useCallback((text) => {
-    setMessages((prev) => [...prev, { role: 'system', text, timestamp: new Date() }]);
+    setNotice(text);
   }, []);
 
   const { isPlaying, queueAudio, stopPlayback, cleanup: cleanupPlayback } = useAudioPlayback();
@@ -78,8 +79,8 @@ export default function App() {
     eosLastRef.current = null;
     inSpeechRef.current = false;
     eosEdgeCountRef.current = 0;
-    addSystemMessage(`Translating: ${sourceLanguage} → ${targetLanguage}. Start speaking.`);
-  }, [addSystemMessage, sourceLanguage, targetLanguage]);
+    setNotice('');
+  }, []);
 
   const handleServerFirstAudio = useCallback((latency) => {
     if (typeof latency === 'number') {
@@ -133,32 +134,22 @@ export default function App() {
     setModelSpeaking(true);
   }, [queueAudio]);
 
-  const handleInputTranscript = useCallback((text) => {
-    setMessages((prev) => [...prev, { role: 'user', text, timestamp: new Date() }]);
+  // The user's transcript arrives once they've finished a phrase: that's the cue to stop "listening".
+  const handleInputTranscript = useCallback(() => {
     setUserSpeaking(false);
   }, []);
 
-  const handleOutputTranscript = useCallback((text) => {
-    setMessages((prev) => {
-      const last = prev[prev.length - 1];
-      if (last && last.role === 'model' && last._partial) {
-        const updated = [...prev];
-        updated[updated.length - 1] = { ...last, text: last.text + text };
-        return updated;
-      }
-      return [...prev, { role: 'model', text, timestamp: new Date(), _partial: true }];
-    });
+  const handleOutputTranscript = useCallback(() => {
+    wordPulseRef.current += 1;
   }, []);
 
   const handleTurnComplete = useCallback(() => {
     setModelSpeaking(false);
-    setMessages((prev) => prev.map((m) => (m._partial ? { ...m, _partial: false } : m)));
   }, []);
 
   const handleInterrupted = useCallback(() => {
     setModelSpeaking(false);
     stopPlayback();
-    setMessages((prev) => prev.map((m) => (m._partial ? { ...m, _partial: false } : m)));
   }, [stopPlayback]);
 
   const handleError = useCallback((message) => {
@@ -209,7 +200,7 @@ export default function App() {
 
   const startSession = useCallback(async () => {
     try {
-      setMessages([]);
+      setNotice('');
       setModelSpeaking(false);
       setUserSpeaking(false);
       setSetupLatencyMs(null);
@@ -231,12 +222,13 @@ export default function App() {
       rttLastRef.current = null;
       rttMinRef.current = null;
       await startCapture();
-      connect(sourceLanguage, targetLanguage);
+      // Backend still expects a setup message with languages but ignores them.
+      connect(config.defaultSourceLanguage, config.defaultTargetLanguage);
       setSessionActive(true);
     } catch (err) {
       addSystemMessage(`Failed to start session: ${err.message}`);
     }
-  }, [startCapture, connect, sourceLanguage, targetLanguage, addSystemMessage]);
+  }, [startCapture, connect, addSystemMessage]);
 
   const endSession = useCallback(() => {
     stopCapture();
@@ -248,9 +240,8 @@ export default function App() {
   }, [stopCapture, stopPlayback, disconnect]);
 
   const handleStopSession = useCallback(() => {
-    addSystemMessage('Session ended.');
     endSession();
-  }, [addSystemMessage, endSession]);
+  }, [endSession]);
 
   useEffect(() => {
     return () => {
@@ -277,10 +268,6 @@ export default function App() {
       <LeftPanel
         connectionStatus={connectionStatus}
         sessionActive={sessionActive}
-        sourceLanguage={sourceLanguage}
-        setSourceLanguage={setSourceLanguage}
-        targetLanguage={targetLanguage}
-        setTargetLanguage={setTargetLanguage}
         onStartSession={startSession}
         onStopSession={handleStopSession}
         isMuted={isMuted}
@@ -297,11 +284,13 @@ export default function App() {
         rttMs={rttMs}
       />
       <CenterPanel
-        messages={messages}
+        sessionActive={sessionActive}
+        connectionStatus={connectionStatus}
         userSpeaking={userSpeaking && !isMuted}
         modelSpeaking={effectiveModelSpeaking}
-        sourceLanguage={sourceLanguage}
-        targetLanguage={targetLanguage}
+        muted={isMuted}
+        pulseRef={wordPulseRef}
+        notice={notice}
       />
     </div>
   );

@@ -1,13 +1,8 @@
 import React from 'react';
-import config from '../config.js';
 
 export default function LeftPanel({
   connectionStatus,
   sessionActive,
-  sourceLanguage,
-  setSourceLanguage,
-  targetLanguage,
-  setTargetLanguage,
   onStartSession,
   onStopSession,
   isMuted,
@@ -26,11 +21,6 @@ export default function LeftPanel({
   const fmtMs = (v) => (v != null ? `${v} ms` : '—');
   const fmtSigned = (v) => (v != null ? `${v > 0 ? '+' : ''}${v} ms` : '—');
   const fmtNum = (v) => (v != null ? `${v}` : '—');
-  const statusColor = {
-    connected: 'var(--accent-green)',
-    connecting: 'var(--accent-yellow)',
-    disconnected: 'var(--accent-red)',
-  };
 
   const statusLabel = {
     connected: 'Connected',
@@ -38,95 +28,36 @@ export default function LeftPanel({
     disconnected: 'Disconnected',
   };
 
-  const handleSwapLanguages = () => {
-    if (sessionActive) return;
-    const temp = sourceLanguage;
-    setSourceLanguage(targetLanguage);
-    setTargetLanguage(temp);
-  };
+  const Row = ({ name, value }) => (
+    <div className="latency-row">
+      <span className="latency-name">{name}</span>
+      <span className="latency-value">{value}</span>
+    </div>
+  );
 
   return (
     <div className="left-panel">
       <div className="panel-logo">
-        <div className="logo-icon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-green)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 8l6 6"/>
-            <path d="M4 14l6-6 2-3"/>
-            <path d="M2 5h12"/>
-            <path d="M7 2h1"/>
-            <path d="M22 22l-5-10-5 10"/>
-            <path d="M14 18h6"/>
-          </svg>
-        </div>
-        <div className="logo-text">
-          <span className="logo-title">Gemini Live</span>
-          <span className="logo-subtitle">Translator</span>
-        </div>
+        <span className="logo-title">
+          Sparrow<span className="dot">.</span>
+        </span>
+        <span className="logo-subtitle">live voice agent</span>
       </div>
 
       <div className="connection-status">
-        <span
-          className="status-dot"
-          style={{ background: statusColor[connectionStatus] }}
-        />
-        <span className="status-label">{statusLabel[connectionStatus]}</span>
+        <span className={`status-dot ${connectionStatus}`} />
+        <span>{statusLabel[connectionStatus]}</span>
       </div>
-
-      <div className="panel-divider" />
-
-      {/* Language Selection */}
-      <div className="control-group">
-        <label className="control-label">Source Language</label>
-        <select
-          className="control-select"
-          value={sourceLanguage}
-          onChange={(e) => setSourceLanguage(e.target.value)}
-          disabled={sessionActive}
-        >
-          {config.supportedLanguages.map((lang) => (
-            <option key={lang} value={lang}>{lang}</option>
-          ))}
-        </select>
-      </div>
-
-      <button
-        className="btn btn-swap"
-        onClick={handleSwapLanguages}
-        disabled={sessionActive}
-        title="Swap languages"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="7 16 3 12 7 8"/>
-          <line x1="3" y1="12" x2="21" y2="12"/>
-          <polyline points="17 8 21 12 17 16"/>
-        </svg>
-        Swap
-      </button>
-
-      <div className="control-group">
-        <label className="control-label">Target Language</label>
-        <select
-          className="control-select"
-          value={targetLanguage}
-          onChange={(e) => setTargetLanguage(e.target.value)}
-          disabled={sessionActive}
-        >
-          {config.supportedLanguages.map((lang) => (
-            <option key={lang} value={lang}>{lang}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="panel-divider" />
 
       {/* Session Controls */}
-      <div className="session-controls">
+      <div className="control-group">
+        <span className="control-label"><span className="index">01</span> Session</span>
         {!sessionActive ? (
           <button className="btn btn-start" onClick={onStartSession}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
               <polygon points="5,3 19,12 5,21" />
             </svg>
-            Start Translating
+            Start talking
           </button>
         ) : (
           <div className="session-active-controls">
@@ -162,71 +93,39 @@ export default function LeftPanel({
         )}
       </div>
 
-      <div className="panel-divider" />
-
-      {/* Session Status */}
-      <div className="status-indicators">
-        <label className="control-label">Status</label>
+      {/* Agent status */}
+      <div className="control-group">
+        <span className="control-label"><span className="index">02</span> Agent</span>
         <div className={`indicator ${modelSpeaking ? 'active' : ''}`}>
           <span className={`indicator-dot ${modelSpeaking ? 'speaking' : ''}`} />
-          <span>Translating</span>
-          {modelSpeaking && <span className="indicator-badge active-badge">Active</span>}
+          <span>{modelSpeaking ? 'Speaking' : 'Idle'}</span>
         </div>
       </div>
 
-      <div className="panel-divider" />
-
-      {/* Latency Metrics */}
-      <div className="latency-metrics">
-        <label className="control-label">Latency</label>
-        <div className="latency-row">
-          <span className="latency-name">Setup handshake</span>
-          <span className="latency-value">{fmtMs(setupLatencyMs)}</span>
+      {/* Latency */}
+      <div className="control-group">
+        <span className="control-label"><span className="index">03</span> Latency</span>
+        <div className="latency-metrics">
+          <Row name="Setup handshake" value={fmtMs(setupLatencyMs)} />
+          <Row name="First audio (Gemini)" value={fmtMs(serverFirstAudioMs)} />
+          <Row name="Perceived (first EoS)" value={fmtMs(perceivedFirstMs)} />
+          <Row name="Round-trip (RTT)" value={fmtMs(rttMs)} />
         </div>
-        <div className="latency-row">
-          <span className="latency-name">Perceived · first EoS</span>
-          <span className="latency-value">{fmtMs(perceivedFirstMs)}</span>
-        </div>
-        <div className="latency-row">
-          <span className="latency-name">Perceived · last EoS</span>
-          <span className="latency-value">{fmtMs(perceivedLastMs)}</span>
-        </div>
-        <div className="latency-row">
-          <span className="latency-name">First audio · Gemini (server)</span>
-          <span className="latency-value">{fmtMs(serverFirstAudioMs)}</span>
-        </div>
-        <div className="latency-row">
-          <span className="latency-name">Δ · first EoS</span>
-          <span className="latency-value">{fmtSigned(deltaFirstMs)}</span>
-        </div>
-        <div className="latency-row">
-          <span className="latency-name">Δ · last EoS</span>
-          <span className="latency-value">{fmtSigned(deltaLastMs)}</span>
-        </div>
-        <div className="latency-row">
-          <span className="latency-name">EoS edges</span>
-          <span className="latency-value">{fmtNum(eosEdges)}</span>
-        </div>
-        <div className="latency-row">
-          <span className="latency-name">WS connect</span>
-          <span className="latency-value">{fmtMs(connectMs)}</span>
-        </div>
-        <div className="latency-row">
-          <span className="latency-name">Round-trip (RTT)</span>
-          <span className="latency-value">{fmtMs(rttMs)}</span>
-        </div>
+        <details className="latency-more">
+          <summary>+ experiment metrics</summary>
+          <div className="latency-metrics">
+            <Row name="Perceived (last EoS)" value={fmtMs(perceivedLastMs)} />
+            <Row name="Δ first EoS" value={fmtSigned(deltaFirstMs)} />
+            <Row name="Δ last EoS" value={fmtSigned(deltaLastMs)} />
+            <Row name="EoS edges" value={fmtNum(eosEdges)} />
+            <Row name="WS connect" value={fmtMs(connectMs)} />
+          </div>
+        </details>
       </div>
 
-      {/* Hint */}
       <div className="fn-hint">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="12" y1="16" x2="12" y2="12"/>
-          <line x1="12" y1="8" x2="12.01" y2="8"/>
-        </svg>
-        <div className="fn-hint-content">
-          <span>Speak in {sourceLanguage} and hear the translation in {targetLanguage}. Only translation is supported — other queries will be declined.</span>
-        </div>
+        Just speak naturally — Sparrow replies in your language. It's an AI wellness guide,
+        not a doctor.
       </div>
     </div>
   );
