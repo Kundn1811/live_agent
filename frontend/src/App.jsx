@@ -5,6 +5,7 @@ import useAudioCapture from './hooks/useAudioCapture.js';
 import useAudioPlayback from './hooks/useAudioPlayback.js';
 import LeftPanel from './components/LeftPanel.jsx';
 import CenterPanel from './components/CenterPanel.jsx';
+import InfoTag from './components/InfoTag.jsx';
 import './App.css';
 
 // Round to 1 decimal — perceived numbers are integers but the server number
@@ -313,6 +314,7 @@ export default function App() {
         onEnd={handleStopSession}
         onToggleMute={toggleMute}
       />
+      <InfoTag />
     </div>
   );
 }
