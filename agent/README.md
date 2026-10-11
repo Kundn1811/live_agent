@@ -17,6 +17,9 @@ Browser --WebRTC--> LiveKit Cloud --job dispatch--> agent worker (this dir) --go
 | `personas.py`, `personas/` | Persona registry + prompt files (private ones gitignored). |
 | `codes.json` | Access codes → persona/limit (gitignored; see `codes.example.json`). |
 | `requirements.txt` | `livekit-agents[google]~=1.8.5` (tested on 1.8.5). |
+| `Dockerfile`, `.dockerignore` | Agent image, built by LiveKit Cloud on `lk agent deploy`. |
+| `Dockerfile.token`, `requirements-token.txt` | Token server image for Cloud Run (staged by the deploy workflow). |
+| `livekit.toml` | Created once by `lk agent create` (agent id); commit it. |
 | `.env.example` | Required env vars. Copy to `.env` (gitignored). |
 
 ## How it works
@@ -52,6 +55,9 @@ Frontend env (optional): `VITE_TOKEN_URL`, `VITE_TRANSPORT` (overrides the publi
 - `POST /token/private {code}` → 401 on a bad code, 429 after 5 wrong tries / 10 min / IP. On success the room is dispatched with metadata `{persona, name, limit_s}`; the prompt text never leaves the server.
 - `agent.py` reads `ctx.job.metadata`, loads the persona, and runs `enforce_budget`: goodbye line 20 s before `limit_s`, then `ctx.shutdown`.
 - Add a family member: add a code to `codes.json` (and a persona file + `_FILE_PERSONAS` entry if they need their own prompt).
+
+## Deploying
+Push to `master` deploys (agent → LiveKit Cloud, token server → Cloud Run, frontend → Vercel). One-time setup and the secrets list: [docs/deploy-setup.md](../docs/deploy-setup.md). On a hosted agent, Gemini auth comes from the env secret `GOOGLE_CREDENTIALS_B64` (base64 of the service-account key JSON); `config.py` writes it to a temp file and sets `GOOGLE_APPLICATION_CREDENTIALS`. Do not set `LIVEKIT_URL`/`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` in the Dockerfile; LiveKit injects them.
 
 `console` still requires non-empty `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` (any value) even though it never contacts a server.
 

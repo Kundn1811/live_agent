@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+.env
+.env.*
+*.secrets
+*.json
+!codes.example.json
+codes.json
+personas/*.md
+personas/*.txt
+!personas/*.example.*
+token_server.py
+Dockerfile.token
+requirements-token.txt
+README.md

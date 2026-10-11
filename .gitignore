@@ -24,6 +24,8 @@ backend/debug_audio/
 # Service account keys / credentials (NEVER commit)
 backend/*.json
 agent/*.json
+agent/*.secrets
+.deploy/
 
 # Private personas + access codes (personal details; keep the *.example.* templates)
 agent/personas/*.md

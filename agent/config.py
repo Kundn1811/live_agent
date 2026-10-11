@@ -5,7 +5,10 @@ Mirrors the model/voice/VAD/persona constants in backend/config.py so both
 transports behave identically during the side-by-side migration. backend/ is
 removed at cutover (M5), after which this is the single source of truth.
 """
+import base64
+import hashlib
 import os
+import tempfile
 
 from dotenv import load_dotenv
 
@@ -13,6 +16,35 @@ from dotenv import load_dotenv
 # LiveKit Cloud creds (LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET) and
 # the Google ADC vars (GOOGLE_APPLICATION_CREDENTIALS / GOOGLE_CLOUD_PROJECT).
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+
+
+def _materialize_google_key() -> None:
+    """Hosted deploys pass the service-account key as an env secret, not a file.
+
+    GOOGLE_CREDENTIALS_B64 = base64 of the key JSON (base64 survives comma-separated
+    secret lists and one-line secret files). Written to a temp file so the Google
+    libraries find it through GOOGLE_APPLICATION_CREDENTIALS. Local runs keep using
+    the key-file path from .env.
+    """
+    b64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "").strip()
+    if not b64 or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+        return
+    key = base64.b64decode(b64)
+    # Content-addressed name: job processes import this concurrently and rewrite
+    # nothing if the file is already there.
+    path = os.path.join(
+        tempfile.gettempdir(), f"gcp-key-{hashlib.sha256(key).hexdigest()[:16]}.json"
+    )
+    if not os.path.exists(path):
+        tmp = f"{path}.{os.getpid()}"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(key)
+        os.replace(tmp, path)  # atomic, so a reader never sees a half-written key
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
+
+
+_materialize_google_key()
 
 # Vertex AI Configuration
 GOOGLE_CLOUD_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "account-pocs")

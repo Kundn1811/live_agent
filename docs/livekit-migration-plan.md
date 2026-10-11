@@ -37,7 +37,7 @@ Move the Sparrow voice agent from the custom FastAPI WebSocket relay onto the
 
 **Model change (decided 2026-10-11):** `gemini-live-2.5-flash-native-audio` retires **Dec 13, 2026** (Vertex page). Move to Gemini 3.8 Live before then; read Google's "Migrate from Gemini 2.5 Flash Live API to Gemini 3.8 Live" guide first (exact id, regions, API changes; unconfirmed whether 3.8 Live is on Vertex). Plan: add `MODEL_ID` / `USE_VERTEX` env switches in `agent/` only (backend/ stays frozen). Fallback: Gemini API key (free tier), no data-privacy concern since this is demos only.
 
-**Next session starts here (2026-10-11):** P2 + P3 done. Remaining before deploy: **P1 hosting** (leaning Cloud Run in project `adk-rag-464418`, min instances 1 + CPU always allocated, attached service account so no key file; verify both settings in the Cloud Run docs; LiveKit Cloud agent hosting is the free alternative with a minutes cap and cold starts). Then `MODEL_ID`/`USE_VERTEX` env switches in `agent/` (not built yet) and the move to Gemini 3.8 Live before Dec 13. Emergency stop for spend: Billing → Disable billing (phone browser, desktop site). Run the agent with `agent/.venv`, restart agent + token server after code changes.
+**Next session starts here (2026-10-11):** P2 + P3 done. **P1 hosting is now decided** (agent on LiveKit Cloud Build plan, token server on Cloud Run, frontend on Vercel; pipeline files are written but untested, see "Deploy pipeline" below and [deploy-setup.md](deploy-setup.md)). Remaining before deploy: do the one-time setup in deploy-setup.md, decide the `/private`-in-cloud gap, merge to `master`. Then `MODEL_ID`/`USE_VERTEX` env switches in `agent/` (not built yet) and the move to Gemini 3.8 Live before Dec 13. Emergency stop for spend: Billing → Disable billing (phone browser, desktop site). Run the agent with `agent/.venv`, restart agent + token server after code changes.
 
 **Known issues parked:** noisy mic breaks the perceived-latency metric and delays the real response (re-test in M4 with WebRTC NS/AEC). `google-genai` pin. Cold-connect latency (M3).
 
@@ -125,12 +125,29 @@ Each one ends with a working, runnable state and its own commit.
 
 ## Deploy prerequisites (open decisions, 2026-10-11)
 
-**P1 — Where to host the agent worker + token server (undecided)**
+**P1 — Where to host the agent worker + token server (DECIDED 2026-10-11: agent on LiveKit Cloud Build plan, token server on Cloud Run, frontend on Vercel free; pipeline + one-time setup in [deploy-setup.md](deploy-setup.md))**
 - The worker is a long-lived outbound connection to LiveKit Cloud, so it needs an always-on container, not scale-to-zero.
 - *Option A — LiveKit Cloud agent hosting (`lk agent deploy`):* free Build plan includes one agent deployment, 5 concurrent sessions, ~1,000 agent session minutes, hard cap (service stops at the limit); cold starts of 10–20 s before the agent joins. Needs a Dockerfile; Google creds supplied as secrets. Token server still needs a small host (or move token minting to a Vercel serverless function).
 - *Option B — Cloud Run:* needs min-instances ≥ 1 and CPU always allocated (otherwise throttled/scaled to zero; not confirmed in LiveKit docs, verify). Gets Google auth for free via an attached service account (no key file), which also fixes P2. Billable; may be covered by GCP credits (unverified).
 - *Option C — Fly.io / Railway / small VPS:* simple always-on container; needs a key file as a secret.
-- Leaning (to confirm with user): decide after P2, because the credential route differs per host.
+- ~~Leaning (to confirm with user): decide after P2~~ Decided as above. A LiveKit-hosted agent has no attached Google service account, so Gemini auth uses a personal service-account key (Vertex AI User) passed as the secret `GOOGLE_CREDENTIALS_B64` (base64 of the key JSON); `agent/config.py` writes it to a temp file and sets `GOOGLE_APPLICATION_CREDENTIALS`. Local runs still use the key-file path in `.env`.
+
+**Re-checked 2026-10-11 against official pages** ([Cloud Run pricing](https://cloud.google.com/run/pricing), [LiveKit pricing](https://livekit.com/pricing)): Cloud Run instance-based $0.000018/vCPU-s + $0.000002/GiB-s (0.5 vCPU/1 GiB = about $28/mo, about $23 after free tier; 1 vCPU/2 GiB about $57 / $52). Idle min-instance rate $0.0000025/vCPU-s and GiB-s (0.5 vCPU + 512 MiB kept warm = about $6.5/mo; 0.25 vCPU + 256 MiB = about $3). LiveKit Build/Ship numbers below confirmed. NOT confirmed: Gemini per-minute price (no official page found for this model id), Build's hard cap, and whether the free tier applies to always-on billing. User says the GCP credit is $10, not the ~$65 below; Gemini on Vertex is billed to the same project and can use most of it.
+
+**P1 cost findings (2026-10-11, estimates; verify before relying):**
+- LiveKit-hosted agent on Build: $0, 1,000 agent-session min, 5 concurrent, 1 deployment, cold start. Ship $50/mo: 5,000 min incl, then $0.01/min, 20 concurrent. Not payable with GCP credits.
+- Cloud Run worker (always-on, instance-based billing): about $25 (0.5 vCPU/1 GiB) to $53 (1 vCPU/2 GiB) per month, rates unverified; payable with GCP credits (~$65 + ~$11/mo accrual). Transport still runs on LiveKit Cloud: agent + user = 2 WebRTC min per session-min, so Build's 5,000 WebRTC min = ~2,500 session-min, then Ship $50.
+- Break-even: Cloud Run beats LiveKit-hosted only above roughly 7,500-10,000 session-min/month. Below that LiveKit-hosted is cheaper.
+- Token server holds in-memory gate counters, so it needs ONE always-on instance (Cloud Run request-based, min 1, max 1; about $3-6/mo by size, see re-check above), not Vercel serverless and not scale-to-zero. Scale-to-zero would need the counters moved to an external store (e.g. free Redis).
+- Gemini cost is the same on both: roughly $0.02-0.025 per conversation minute.
+- Unconfirmed: whether self-hosted workers pay agent-session minutes (sources say no), and what Build does past its limits (plan notes say hard cap).
+
+**Deploy pipeline (built 2026-10-11, untested, nothing committed yet)**
+- One repo, deploy branch `master`. Push to `master` deploys per part by path filter; manual **Run workflow** also works. Frontend: Vercel's GitHub link (root dir `frontend`, `frontend/vercel.json` SPA rewrite).
+- Files: `.github/workflows/deploy-agent.yml` (`livekit/deploy-action@v2`, needs `agent/livekit.toml` from a one-time `lk agent create`), `.github/workflows/deploy-token-server.yml` (Workload Identity Federation, no key file; `gcloud run deploy --source`, min=max=1 instance), `agent/Dockerfile` + `agent/.dockerignore` (agent image), `agent/Dockerfile.token` + `agent/requirements-token.txt` (token server image), `docs/deploy-setup.md` (one-time commands, secrets list, first-deploy order).
+- Secret map: LiveKit key/secret/url → token server (Cloud Run Secret Manager) and agent (injected by LiveKit); Gemini key → agent only (`AGENT_SECRET_LIST` in GitHub); codes.json → token server only; frontend gets only public `VITE_TOKEN_URL`.
+- **Open gap:** `codes.json` and private persona files are gitignored, so CI cannot ship them and `/private` will not work in the cloud. Public Sparrow route is unaffected. Fix = pass them as secrets and read env vars in `personas.py` / `token_server.py` (not built; decide first).
+- Not tested: no Docker/gcloud/lk on the dev machine. Deploys only fire after the feature branch is merged into `master`.
 
 **P2 — Credentials (blocker)**
 - Local `agent/.env` currently has `GOOGLE_CLOUD_PROJECT=lenskart-ajnalens` and a service-account key from `backend/` → **employer project/key**. Never deploy with it, and move local dev off it too.

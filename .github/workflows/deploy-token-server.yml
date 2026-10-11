@@ -1,0 +1,74 @@
+name: Deploy token server (Cloud Run)
+
+# Runs on every push to master that touches the token server, or by hand from the Actions tab.
+on:
+  push:
+    branches: [master]
+    paths:
+      - agent/token_server.py
+      - agent/config.py
+      - agent/personas.py
+      - agent/requirements-token.txt
+      - agent/Dockerfile.token
+      - .github/workflows/deploy-token-server.yml
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-token-server
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # lets GitHub prove its identity to Google (no key file stored)
+
+env:
+  SERVICE: sparrow-token
+  REGION: us-central1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Cloud Run builds from one folder with a file called Dockerfile.
+      - name: Stage the build folder
+        run: |
+          mkdir -p .deploy/token
+          cp agent/token_server.py agent/config.py agent/personas.py .deploy/token/
+          cp agent/requirements-token.txt .deploy/token/requirements.txt
+          cp agent/Dockerfile.token .deploy/token/Dockerfile
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # min=max=1: the gate counters live in memory, so exactly one copy must exist, always.
+      # CPU 0.5 needs concurrency 1. Request-based billing (CPU throttled between requests).
+      # "^@^" makes @ the separator, so CORS_ORIGINS may itself contain commas.
+      - name: Deploy
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$REGION" \
+            --source .deploy/token \
+            --allow-unauthenticated \
+            --min-instances 1 --max-instances 1 \
+            --cpu 0.5 --memory 512Mi --concurrency 1 \
+            --set-env-vars "^@^LIVEKIT_URL=${LIVEKIT_URL}@CORS_ORIGINS=${CORS_ORIGINS}" \
+            --set-secrets "LIVEKIT_API_KEY=livekit-api-key:latest,LIVEKIT_API_SECRET=livekit-api-secret:latest"
+
+      - name: Smoke test
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+        run: |
+          URL=$(gcloud run services describe "$SERVICE" --project "$GCP_PROJECT_ID" --region "$REGION" --format 'value(status.url)')
+          echo "Token server: $URL"
+          curl -fsS "$URL/health"
