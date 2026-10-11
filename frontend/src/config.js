@@ -2,6 +2,7 @@
 // Routes:  /          public Sparrow on LiveKit
 //          /private   access-code gate, LiveKit only (token server owns codes + personas)
 //          /legacy    old WebSocket backend (kept until backend/ is deleted at M5)
+// Any other path is a "notfound" page (the app does not mount, so no AI access).
 // ?transport=ws|livekit or VITE_TRANSPORT can still override the public route.
 const pathname =
   typeof window !== "undefined" ? window.location.pathname.replace(/\/+$/, "") : "";
@@ -12,8 +13,10 @@ const queryTransport =
 
 const isPrivate = pathname === "/private";
 const isLegacy = pathname === "/legacy";
+const route = isPrivate ? "private" : isLegacy ? "legacy" : pathname === "" ? "public" : "notfound";
 
 const config = {
+  route,
   isPrivate,
   transport: isLegacy
     ? "ws"

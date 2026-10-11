@@ -23,7 +23,7 @@ MODEL_ID = "gemini-live-2.5-flash-native-audio"
 
 # Name the agent registers under; the token server dispatches this agent into
 # each new room explicitly (so it never auto-joins unrelated rooms).
-AGENT_NAME = "sparrow"
+AGENT_NAME = os.environ.get("AGENT_NAME", "sparrow")
 
 # VAD (Voice Activity Detection) Configuration — Gemini server-side VAD.
 VAD_START_OF_SPEECH_SENSITIVITY = "START_SENSITIVITY_LOW"
