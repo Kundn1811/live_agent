@@ -13,7 +13,7 @@ Browser --WebRTC--> LiveKit Cloud --job dispatch--> agent worker (this dir) --go
 |---|---|
 | `agent.py` | `AgentServer` entrypoint (`agent_name="sparrow"`), `build_realtime_model()`, `Sparrow` agent (persona + Google Search tool), per-turn logging. |
 | `config.py` | Model, Vertex location, VAD, voice, `SESSION_BUDGET_S`, Sparrow system instruction. Mirrors `backend/config.py`. |
-| `token_server.py` | FastAPI (:8001). `GET /token` (public) and `POST /token/private` (access code). Mints a room JWT (10-min TTL) and dispatches the `sparrow` agent into a fresh `sparrow-<id>` room, with persona metadata. Usage gate will live here. |
+| `token_server.py` | FastAPI (:8001). `GET /token` (public) and `POST /token/private` (access code). Mints a room JWT (10-min TTL) and dispatches the `sparrow` agent into a fresh `sparrow-<id>` room, with persona metadata. Public usage gate lives here (see "Public usage gate"). |
 | `personas.py`, `personas/` | Persona registry + prompt files (private ones gitignored). |
 | `codes.json` | Access codes → persona/limit (gitignored; see `codes.example.json`). |
 | `requirements.txt` | `livekit-agents[google]~=1.8.5` (tested on 1.8.5). |
@@ -57,3 +57,12 @@ Frontend env (optional): `VITE_TOKEN_URL`, `VITE_TRANSPORT` (overrides the publi
 
 ## Known issues
 - Cold connect `acquire_time` ≈ 2.2–3.2 s, plus ~1.1 s event-loop block during session creation (sync SSL context + token refresh in google-genai).
+
+## Public usage gate (P3)
+- `GET /token` only; `/token/private` is excluded. In-memory, resets on restart.
+- Token server: per-IP daily limit (`PUBLIC_IP_DAILY_LIMIT`, default 3) and global daily cap (`PUBLIC_GLOBAL_DAILY_LIMIT`, default 40) over a rolling 24 h; 429 with a friendly message (the frontend shows it). Public sessions also get `PUBLIC_LIMIT_S` (default 180 s). Set `TRUST_PROXY=1` behind a proxy so the visitor IP comes from `X-Forwarded-For`.
+- Agent: metadata carries `max_turns` (`PUBLIC_MAX_TURNS`, default 3). `agent.py` counts user turns, lets the reply to the last one finish, speaks a goodbye, then `ctx.shutdown`. The counter lives on the server.
+- Local testing of `/` burns the per-IP limit: set `PUBLIC_IP_DAILY_LIMIT` high in `agent/.env`.
+- Ending a session: `end_session` deletes the room (`ctx.delete_room()`) before `ctx.shutdown`; otherwise the visitor stays alone in the room and the browser never notices. Used by both the turn cap and the time limit.
+- The spoken goodbye is best effort: Gemini sometimes cuts a `generate_reply` after a few words (and `allow_interruptions=False` is not supported with server-side turn detection). A cut under 4 s is retried once.
+- Logs: `agent/agent.log` (gitignored) gets our lines and LiveKit INFO+. Run with `.venv\Scripts\python.exe agent.py dev`.

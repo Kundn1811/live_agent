@@ -35,6 +35,10 @@ Move the Sparrow voice agent from the custom FastAPI WebSocket relay onto the
    5. Only then send the link to her / family.
 5. Interviewer persona (local only, never deployed). 6. Inject into the portfolio.
 
+**Model change (decided 2026-10-11):** `gemini-live-2.5-flash-native-audio` retires **Dec 13, 2026** (Vertex page). Move to Gemini 3.8 Live before then; read Google's "Migrate from Gemini 2.5 Flash Live API to Gemini 3.8 Live" guide first (exact id, regions, API changes; unconfirmed whether 3.8 Live is on Vertex). Plan: add `MODEL_ID` / `USE_VERTEX` env switches in `agent/` only (backend/ stays frozen). Fallback: Gemini API key (free tier), no data-privacy concern since this is demos only.
+
+**Next session starts here (2026-10-11):** P2 + P3 done. Remaining before deploy: **P1 hosting** (leaning Cloud Run in project `adk-rag-464418`, min instances 1 + CPU always allocated, attached service account so no key file; verify both settings in the Cloud Run docs; LiveKit Cloud agent hosting is the free alternative with a minutes cap and cold starts). Then `MODEL_ID`/`USE_VERTEX` env switches in `agent/` (not built yet) and the move to Gemini 3.8 Live before Dec 13. Emergency stop for spend: Billing → Disable billing (phone browser, desktop site). Run the agent with `agent/.venv`, restart agent + token server after code changes.
+
 **Known issues parked:** noisy mic breaks the perceived-latency metric and delays the real response (re-test in M4 with WebRTC NS/AEC). `google-genai` pin. Cold-connect latency (M3).
 
 ## Status
@@ -49,7 +53,7 @@ Branch: `feat/livekit-agent` (from `master`). Implementation docs: [agent/README
 | M3 Metrics + A/B | ⬜ | |
 | M4 Recorder + noise | ⬜ | |
 | M5 Docs cleanup | ⬜ | `backend/` is kept (no deletion). |
-| Deploy prerequisites P1–P3 | ⬜ | hosting choice, own GCP creds (employer key in use today!), public 3-turn gate. |
+| Deploy prerequisites P1–P3 | 🟡 | **P2 done (2026-10-11):** personal project `adk-rag-464418` + own key in `agent/.env`, Live session verified; paid by the Google AI Pro monthly credits (6 × ₹959.89 on the billing account; ₹500 budget alert only, no hard stop; emergency stop = Billing → Disable billing, via phone browser desktop site). **P3 done and live-tested (2026-10-11):** per-IP/global daily caps (429 verified), 3-turn cap ends the session with a spoken goodbye (mic muted during the goodbye so noise can't cut it), room is deleted at the end so the browser disconnects, `agent/agent.log` added. Before deploy: set `TRUST_PROXY=1` and review `PUBLIC_*` limits. P1 hosting still open. |
 | Deploy: backend → local-frontend test → frontend → test → send link | ⬜ | See Handoff context, order of work. |
 
 ## Decisions

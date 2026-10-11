@@ -33,6 +33,15 @@ MAX_FAILS = 5
 FAIL_WINDOW_S = 600
 _failures: dict[str, list[float]] = {}
 
+# Public-route gate (GET /token only; /token/private is excluded). In-memory, so
+# the counters reset on restart. Tune via env.
+PUBLIC_IP_DAILY_LIMIT = int(os.environ.get("PUBLIC_IP_DAILY_LIMIT", "3"))
+PUBLIC_GLOBAL_DAILY_LIMIT = int(os.environ.get("PUBLIC_GLOBAL_DAILY_LIMIT", "40"))
+PUBLIC_MAX_TURNS = int(os.environ.get("PUBLIC_MAX_TURNS", "3"))
+PUBLIC_LIMIT_S = float(os.environ.get("PUBLIC_LIMIT_S", "180"))
+TRUST_PROXY = os.environ.get("TRUST_PROXY", "") == "1"
+_public_mints: list[tuple[float, str]] = []  # (monotonic time, ip)
+
 LIVEKIT_URL = os.environ.get("LIVEKIT_URL", "")
 LIVEKIT_API_KEY = os.environ.get("LIVEKIT_API_KEY", "")
 LIVEKIT_API_SECRET = os.environ.get("LIVEKIT_API_SECRET", "")
@@ -54,7 +63,36 @@ app.add_middleware(
 )
 
 
-def _mint(persona: str, name: str | None = None, limit_s: float | None = None) -> dict:
+def _client_ip(request: Request) -> str:
+    # Behind a proxy (Cloud Run, Fly...) the socket peer is the proxy, so read
+    # the first X-Forwarded-For hop. Only enable TRUST_PROXY when actually behind one.
+    if TRUST_PROXY:
+        fwd = request.headers.get("x-forwarded-for", "")
+        if fwd:
+            return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _check_public_gate(ip: str) -> None:
+    """Spend guard for the public route: per-IP and global caps over a rolling 24 h."""
+    now = time.monotonic()
+    cutoff = now - 86400
+    _public_mints[:] = [(t, i) for t, i in _public_mints if t > cutoff]
+    if len(_public_mints) >= PUBLIC_GLOBAL_DAILY_LIMIT:
+        raise HTTPException(429, "Sparrow is resting for today. Please come back tomorrow.")
+    if sum(1 for _, i in _public_mints if i == ip) >= PUBLIC_IP_DAILY_LIMIT:
+        raise HTTPException(
+            429, "You have used today's free chats. Please come back tomorrow."
+        )
+    _public_mints.append((now, ip))
+
+
+def _mint(
+    persona: str,
+    name: str | None = None,
+    limit_s: float | None = None,
+    max_turns: int | None = None,
+) -> dict:
     """Fresh room + join token, with the agent dispatched carrying the persona id."""
     if not (LIVEKIT_URL and LIVEKIT_API_KEY and LIVEKIT_API_SECRET):
         raise HTTPException(500, "LiveKit credentials are not configured")
@@ -62,7 +100,9 @@ def _mint(persona: str, name: str | None = None, limit_s: float | None = None) -
     room = f"sparrow-{uuid.uuid4().hex[:12]}"
     identity = f"user-{uuid.uuid4().hex[:8]}"
     # Only ids and numbers go to the agent; prompt text never leaves the server.
-    metadata = json.dumps({"persona": persona, "name": name, "limit_s": limit_s})
+    metadata = json.dumps(
+        {"persona": persona, "name": name, "limit_s": limit_s, "max_turns": max_turns}
+    )
 
     jwt = (
         api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
@@ -80,9 +120,14 @@ def _mint(persona: str, name: str | None = None, limit_s: float | None = None) -
 
 
 @app.get("/token")
-async def token():
-    """Public route: default Sparrow, no credential."""
-    return _mint(DEFAULT_PERSONA)
+async def token(request: Request):
+    """Public route: default Sparrow, no credential, gated per IP / globally.
+
+    The turn cap is enforced by the agent (server side); the short time limit
+    here also bounds a visitor who stays silent and just holds the session.
+    """
+    _check_public_gate(_client_ip(request))
+    return _mint(DEFAULT_PERSONA, limit_s=PUBLIC_LIMIT_S, max_turns=PUBLIC_MAX_TURNS)
 
 
 def _load_codes() -> dict:
@@ -109,7 +154,7 @@ class PrivateRequest(BaseModel):
 @app.post("/token/private")
 async def token_private(body: PrivateRequest, request: Request):
     """Private route: a credential code picks the persona and the session limit."""
-    ip = request.client.host if request.client else "unknown"
+    ip = _client_ip(request)
     _check_rate_limit(ip)
 
     submitted = body.code.strip()

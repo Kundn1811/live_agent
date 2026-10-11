@@ -13,6 +13,8 @@ Run:  python agent.py dev      (registers with LiveKit Cloud from agent/.env)
 import asyncio
 import json
 import logging
+import os
+import time
 
 from google.genai import types
 from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli
@@ -33,6 +35,16 @@ from config import (
 from personas import DEFAULT_PERSONA, load_persona
 
 logger = logging.getLogger("sparrow")
+
+# Also write our own lines and LiveKit's INFO+ to agent/agent.log (gitignored, plain
+# text, no colour codes) so a run can be shared without copying the terminal.
+_file_log = logging.FileHandler(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent.log"), encoding="utf-8"
+)
+_file_log.setLevel(logging.INFO)
+_file_log.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+for _name in ("sparrow", "livekit.agents"):
+    logging.getLogger(_name).addHandler(_file_log)
 
 
 def build_realtime_model() -> google.realtime.RealtimeModel:
@@ -98,7 +110,67 @@ async def enforce_budget(ctx: JobContext, session: AgentSession, limit_s: float)
         logger.exception("room %s: wrap-up failed", ctx.room.name)
     await asyncio.sleep(WRAP_UP_LEAD_S)
     logger.info("room %s: session budget reached", ctx.room.name)
-    ctx.shutdown(reason="session budget")
+    await end_session(ctx, "session budget")
+
+
+async def end_session(ctx: JobContext, reason: str) -> None:
+    """Close the room for everyone, then stop the job.
+
+    Shutting down the agent alone leaves the visitor alone in the room, and the
+    browser only reacts to its own disconnect, so it would sit in "Ready" forever.
+    """
+    try:
+        await ctx.delete_room()
+    except Exception:
+        logger.exception("room %s: delete_room failed", ctx.room.name)
+    ctx.shutdown(reason=reason)
+
+
+async def end_after_last_turn(
+    ctx: JobContext,
+    session: AgentSession,
+    answered: asyncio.Event,
+    answer_started: asyncio.Event,
+) -> None:
+    """Public turn cap: let the reply to the last allowed turn finish, then say goodbye and end."""
+    # The user's transcript can land after the reply already started (or even ended),
+    # so first work out whether an answer is still coming.
+    if session.agent_state not in ("speaking", "thinking") and not answer_started.is_set():
+        await asyncio.sleep(3)
+    if session.agent_state in ("speaking", "thinking") or answer_started.is_set():
+        try:
+            # Replies can run 20+ s; the cap only guards against a stuck state.
+            await asyncio.wait_for(answered.wait(), timeout=90)
+        except asyncio.TimeoutError:
+            logger.warning("room %s: last reply never finished", ctx.room.name)
+    logger.info("room %s: turn limit reached, saying goodbye", ctx.room.name)
+    # Stop sending mic audio so room/fan noise cannot trigger Gemini's server-side
+    # VAD and cut the goodbye (allow_interruptions=False is unsupported with it).
+    session.input.set_audio_enabled(False)
+    try:
+        # Gemini sometimes cuts this reply after a word or two; retry once only
+        # if it was cut very short (a nearly-finished goodbye is not repeated).
+        for attempt in (1, 2):
+            t0 = time.monotonic()
+            handle = session.generate_reply(
+                instructions=(
+                    "That was the visitor's last free turn. Say a warm one-sentence goodbye "
+                    "and tell them they can ask Kundan for full access."
+                )
+            )
+            # Bounded: the session must end even if the goodbye never plays.
+            await asyncio.wait_for(handle.wait_for_playout(), timeout=20)
+            took = time.monotonic() - t0
+            logger.info(
+                "room %s: goodbye attempt %d done (interrupted=%s, %.1fs)",
+                ctx.room.name, attempt, handle.interrupted, took,
+            )
+            if not (handle.interrupted and took < 4):
+                break
+    except Exception:
+        logger.exception("room %s: turn-limit goodbye failed", ctx.room.name)
+    finally:
+        await end_session(ctx, "turn limit")
 
 
 @server.rtc_session(agent_name=AGENT_NAME)
@@ -106,21 +178,50 @@ async def entrypoint(ctx: JobContext):
     meta = read_job_metadata(ctx)
     persona = load_persona(meta.get("persona") or DEFAULT_PERSONA)
     limit_s = float(meta.get("limit_s") or SESSION_BUDGET_S)
+    max_turns = int(meta.get("max_turns") or 0)  # 0 = unlimited (private routes)
     logger.info(
-        "room %s: job started (persona=%s, limit=%ss)", ctx.room.name, persona.id, limit_s
+        "room %s: job started (persona=%s, limit=%ss, max_turns=%s)",
+        ctx.room.name, persona.id, limit_s, max_turns or "none",
     )
 
     session = AgentSession(llm=build_realtime_model())
 
+    # Turn cap lives here (server side), not in the browser.
+    user_turns = 0
+    closing = False
+    answered = asyncio.Event()  # the agent finished answering after the last allowed turn
+    answer_started = asyncio.Event()  # ...and started to
+    closer: list[asyncio.Task] = []  # keeps the closing task referenced
+
+    @session.on("agent_state_changed")
+    def _on_state(ev):
+        if not closing:
+            return
+        if ev.new_state == "speaking":
+            answer_started.set()
+        elif ev.old_state == "speaking":
+            answered.set()
+
     # Per-turn transcript + latency report (full metrics parity is M3).
     @session.on("conversation_item_added")
     def _on_item(ev):
+        nonlocal user_turns, closing
         item = ev.item
         if getattr(item, "role", None) in ("user", "assistant"):
             logger.info(
                 "room %s: %s: %r metrics=%s",
                 ctx.room.name, item.role, item.text_content, dict(item.metrics),
             )
+        if max_turns and getattr(item, "role", None) == "user":
+            user_turns += 1
+            if user_turns >= max_turns and not closing:
+                closing = True
+                logger.info("room %s: last allowed turn (%d)", ctx.room.name, user_turns)
+                closer.append(
+                    asyncio.create_task(
+                        end_after_last_turn(ctx, session, answered, answer_started)
+                    )
+                )
 
     await session.start(room=ctx.room, agent=Sparrow(persona.instructions))
     logger.info("room %s: session started", ctx.room.name)
