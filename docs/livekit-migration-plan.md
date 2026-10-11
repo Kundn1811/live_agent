@@ -3,14 +3,40 @@
 Move the Sparrow voice agent from the custom FastAPI WebSocket relay onto the
 **LiveKit Agents** framework (Python), keeping Gemini Live on Vertex AI.
 
+> **Resuming in a new session?** Read "Handoff context" right below, then "Status".
+> Convention: project context, decisions and next steps are kept in THIS file.
+
+## Handoff context (read first)
+
+**Owner:** Kundan. Sparrow = voice agent on Gemini Live (Vertex AI), now being moved to LiveKit Agents.
+
+**Product direction (decided 2026-10-11)**
+- **LiveKit is the default path.** Only `agent/` + `frontend/` get deployed. `backend/` (old FastAPI WS relay + warm pool + resumable wrapper) is NOT deployed, to save server resources; it stays only as the `/legacy` route until it is deleted at M5. Do not touch `backend/` except to delete it.
+- **Frontend routes:** `/` public Sparrow (LiveKit) · `/private` access-code gate (LiveKit only) · `/legacy` old WS backend (needs `backend/` on :8000). `?transport=ws|livekit` overrides the public route. Vercel will need an SPA rewrite so `/private` and `/legacy` load the app.
+- **Dynamic persona injection (built, untested live):** a credential code → persona. `POST /token/private {code}` checks `agent/codes.json`; the room is dispatched with metadata `{persona, name, limit_s}` (ids only, prompt text never leaves the server). `agent.py` loads `personas/<id>.md`, may greet first, and ends the session at `limit_s` (default 10 min, goodbye line 20 s before). `system_instruction` is immutable per session, which is fine: one room = one session, no warm pool. Details: [agent/README.md](../agent/README.md).
+- **Persona 1 — `partner` (built, private):** a personal persona for Kundan's partner, speaking on his behalf: short replies (low patience), one tiny healthy-habit step per turn, always says it is Sparrow his assistant (never claims to be him or human), safety rules kept. **All personal details (names, health context, wording) live only in local gitignored files — never put them in git, docs, code or CLAUDE.md:** `agent/personas/partner.md`, `agent/personas/partner.greeting.txt`, `agent/codes.json`. Templates (committed): `persona.example.md`, `persona.example.greeting.txt`, `codes.example.json`. Back these files up outside git; they are not recoverable from the repo.
+  - Same mechanism later serves **family**: one code per person + a small persona/profile each. Build family personas only after the partner test works smoothly. Same rule: local gitignored files only.
+- **Persona 2 — `interviewer` (NOT started; after v1 + deploy; local only, never deployed):** Kundan gives the question list + interview context; it also generates follow-up questions by digging into his answers; goal = make him interview-ready. Token design: **input-heavy, output-light** — all context in the system prompt, replies ≤ 2 sentences, one question per turn, no answering for him, feedback only on request/at end. Needs a longer VAD silence (~1.5–2 s) so it does not cut him off. Optional later: log answers + end-of-session scorecard.
+- **Base Sparrow** stays the default persona (`DEFAULT_SYSTEM_INSTRUCTION` in `config.py`).
+
+**Order of work**
+1. Finish M0/M1: put `LIVEKIT_URL/API_KEY/API_SECRET` in `agent/.env`; spoken test incl. a search-grounded question; live test of `/` and `/private` (transcripts, barge-in, persona greeting, 10-min cutoff).
+2. M2 → M5 (below). M3 decision gate: cold connect ≈ 2.2–3.2 s vs the old warm pool.
+3. Deploy: agent worker + token server on Cloud Run (or similar), frontend on Vercel. GCP project/credentials undecided; never use `backend/lenskart-*.json` (employer key, gitignored). Private files (`personas/*.md`, `codes.json`) are not in git → supply as secrets/env at deploy.
+4. Public usage gate (no login): 3 turns per visitor — per-IP/day + global daily cap in `token_server.py`, server-side turn counter in the agent. Private-code users are not subject to it (only the 10-min session limit).
+5. Interviewer persona (local). 6. Inject into the portfolio.
+
+**Known issues parked:** noisy mic breaks the perceived-latency metric and delays the real response (re-test in M4 with WebRTC NS/AEC). `google-genai` pin. Cold-connect latency (M3).
+
 ## Status
-Branch: `feat/livekit-agent` (from `master`). Implementation docs: [agent/README.md](../agent/README.md).
+Branch: `feat/livekit-agent` (from `master`). Implementation docs: [agent/README.md](../agent/README.md). Nothing from M1 onward is committed yet.
 
 | Milestone | Status | Notes |
 |---|---|---|
 | M0 Spike | 🟡 code done | Console smoke run connects to Gemini. Pending: spoken test incl. a search-grounded question. |
-| M1 Token server + frontend | ⬜ | Needs LiveKit Cloud creds in `agent/.env`. |
-| M2 Session lifecycle | ⬜ | |
+| M1 Token server + frontend | 🟡 code done | `token_server.py` + `useLiveKitSession`; LiveKit is now the default transport (`/`), old WS at `/legacy`. Build passes, `/token` verified offline. Pending: LiveKit Cloud key/secret in `agent/.env`, then a live conversation test (transcripts, barge-in). Metrics (perceived/server first-audio) are not wired on this transport yet (M3). |
+| M1b Personas + private route | 🟡 code done | `personas.py`, `partner` persona, `POST /token/private` (codes, 5-fail throttle), `/private` code gate, per-session time limit + goodbye. Token server verified offline (200/401/429, dispatch metadata); frontend build passes. Pending: live test with a private persona. |
+| M2 Session lifecycle | 🟡 partly | Budget timer done (in `agent.py`: `enforce_budget`). Still: verify resumption across `go_away` (>10 min run), clean shutdown on client leave, per-session logging. |
 | M3 Metrics + A/B | ⬜ | |
 | M4 Recorder + noise | ⬜ | |
 | M5 Cutover | ⬜ | |

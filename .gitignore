@@ -24,6 +24,14 @@ backend/debug_audio/
 # Service account keys / credentials (NEVER commit)
 backend/*.json
 agent/*.json
+
+# Private personas + access codes (personal details; keep the *.example.* templates)
+agent/personas/*.md
+agent/personas/*.txt
+!agent/personas/*.example.md
+!agent/personas/*.example.*
+agent/codes.json
+!agent/codes.example.json
 *-credentials.json
 *service-account*.json
 

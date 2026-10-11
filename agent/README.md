@@ -13,6 +13,9 @@ Browser --WebRTC--> LiveKit Cloud --job dispatch--> agent worker (this dir) --go
 |---|---|
 | `agent.py` | `AgentServer` entrypoint (`agent_name="sparrow"`), `build_realtime_model()`, `Sparrow` agent (persona + Google Search tool), per-turn logging. |
 | `config.py` | Model, Vertex location, VAD, voice, `SESSION_BUDGET_S`, Sparrow system instruction. Mirrors `backend/config.py` until M5. |
+| `token_server.py` | FastAPI (:8001). `GET /token` (public) and `POST /token/private` (access code). Mints a room JWT (10-min TTL) and dispatches the `sparrow` agent into a fresh `sparrow-<id>` room, with persona metadata. Usage gate will live here. |
+| `personas.py`, `personas/` | Persona registry + prompt files (private ones gitignored). |
+| `codes.json` | Access codes → persona/limit (gitignored; see `codes.example.json`). |
 | `requirements.txt` | `livekit-agents[google]~=1.8.5` (tested on 1.8.5). |
 | `.env.example` | Required env vars. Copy to `.env` (gitignored). |
 
@@ -34,6 +37,22 @@ copy .env.example .env   # fill LiveKit Cloud + Google ADC vars
 .venv\Scripts\python agent.py console   # local mic/speaker, no LiveKit room
 .venv\Scripts\python agent.py dev       # register with LiveKit Cloud (hot reload)
 ```
+Full local stack (three terminals):
+```powershell
+cd agent;    .venv\Scripts\python agent.py dev          # agent worker
+cd agent;    .venv\Scripts\python token_server.py       # :8001
+cd frontend; npm run dev                                # open http://localhost:5173/
+```
+Routes: `/` public Sparrow (LiveKit), `/private` access-code gate (LiveKit, persona by code), `/legacy` old WS backend (needs `backend/` running on :8000).
+Frontend env (optional): `VITE_TOKEN_URL`, `VITE_TRANSPORT` (overrides the public route only).
+
+## Personas + private route
+- `personas.py` — registry. `sparrow` = `DEFAULT_SYSTEM_INSTRUCTION`; others load `personas/<id>.md` (gitignored; template `persona.example.md`), with an optional `personas/<id>.greeting.txt` for an agent-first greeting. Personas are discovered from files; no persona names or details are in code.
+- `codes.json` (gitignored; `codes.example.json` is the template) — `{code: {persona, name, limit_s}}`. Re-read per request.
+- `POST /token/private {code}` → 401 on a bad code, 429 after 5 wrong tries / 10 min / IP. On success the room is dispatched with metadata `{persona, name, limit_s}`; the prompt text never leaves the server.
+- `agent.py` reads `ctx.job.metadata`, loads the persona, and runs `enforce_budget`: goodbye line 20 s before `limit_s`, then `ctx.shutdown`.
+- Add a family member: add a code to `codes.json` (and a persona file + `_FILE_PERSONAS` entry if they need their own prompt).
+
 `console` still requires non-empty `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` (any value) even though it never contacts a server.
 
 ## Known issues
