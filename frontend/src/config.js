@@ -1,7 +1,7 @@
 // Transport: "livekit" (default) or "ws" (old FastAPI relay in backend/).
 // Routes:  /          public Sparrow on LiveKit
 //          /private   access-code gate, LiveKit only (token server owns codes + personas)
-//          /legacy    old WebSocket backend (kept until backend/ is deleted at M5)
+//          /legacy    old WebSocket backend (local only; backend/ is never deployed)
 // Any other path is a "notfound" page (the app does not mount, so no AI access).
 // ?transport=ws|livekit or VITE_TRANSPORT can still override the public route.
 const pathname =

@@ -1,7 +1,7 @@
 # Sparrow agent (LiveKit)
 
 LiveKit Agents implementation of the Sparrow voice agent. Runs side-by-side with
-the legacy FastAPI WebSocket backend (`backend/`) until cutover (M5).
+the legacy FastAPI WebSocket backend (`backend/`) (kept in the repo, never deployed).
 Migration plan + milestone status: [docs/livekit-migration-plan.md](../docs/livekit-migration-plan.md).
 
 ```
@@ -12,7 +12,7 @@ Browser --WebRTC--> LiveKit Cloud --job dispatch--> agent worker (this dir) --go
 | File | Purpose |
 |---|---|
 | `agent.py` | `AgentServer` entrypoint (`agent_name="sparrow"`), `build_realtime_model()`, `Sparrow` agent (persona + Google Search tool), per-turn logging. |
-| `config.py` | Model, Vertex location, VAD, voice, `SESSION_BUDGET_S`, Sparrow system instruction. Mirrors `backend/config.py` until M5. |
+| `config.py` | Model, Vertex location, VAD, voice, `SESSION_BUDGET_S`, Sparrow system instruction. Mirrors `backend/config.py`. |
 | `token_server.py` | FastAPI (:8001). `GET /token` (public) and `POST /token/private` (access code). Mints a room JWT (10-min TTL) and dispatches the `sparrow` agent into a fresh `sparrow-<id>` room, with persona metadata. Usage gate will live here. |
 | `personas.py`, `personas/` | Persona registry + prompt files (private ones gitignored). |
 | `codes.json` | Access codes → persona/limit (gitignored; see `codes.example.json`). |
