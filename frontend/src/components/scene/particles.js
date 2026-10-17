@@ -126,7 +126,7 @@ export class ParticlePool {
   update(dt, tint) {
     const s = this.sys;
     const out = this.mode === 'out';
-    const spin = dt * 1.1;
+    const spin = dt * 0.45;
     const cs = Math.cos(spin);
     const sn = Math.sin(spin);
     for (let i = 0; i < this.n; i++) {
@@ -136,11 +136,13 @@ export class ParticlePool {
       }
       this.life[i] -= dt;
       const i3 = i * 3;
-      s.pos[i3] += this.vel[i3] * dt;
-      s.pos[i3 + 1] += this.vel[i3 + 1] * dt;
-      s.pos[i3 + 2] += this.vel[i3 + 2] * dt;
-
       const t = Math.min(1, 1 - this.life[i] / this.maxLife[i]);
+      // 'in' motes start slow and accelerate, like being pulled into the core.
+      const k = out ? 1 : 0.35 + 2 * t * t;
+      s.pos[i3] += this.vel[i3] * dt * k;
+      s.pos[i3 + 1] += this.vel[i3 + 1] * dt * k;
+      s.pos[i3 + 2] += this.vel[i3 + 2] * dt * k;
+
       if (out) {
         if (s.pos[i3 + 2] > this.zMax) this.life[i] = 0;
         const drag = 1 - 0.12 * dt;
@@ -156,9 +158,11 @@ export class ParticlePool {
         s.pos[i3] = x * cs - z * sn;
         s.pos[i3 + 2] = x * sn + z * cs;
         const r = Math.hypot(s.pos[i3], s.pos[i3 + 1], s.pos[i3 + 2]);
-        if (r < this.coreRadius) this.life[i] = 0;
-        s.alpha[i] = smoothstep(0, 0.2, t) * (1 - smoothstep(0.85, 1, t)) * tint;
-        s.size[i] = this.size0[i] * (0.5 + 0.5 * t);
+        if (r < this.coreRadius * 1.05) this.life[i] = 0;
+        // Fade out as they sink into the core, so they read as absorbed, not popped.
+        const near = smoothstep(this.coreRadius, this.coreRadius * 1.6, r);
+        s.alpha[i] = smoothstep(0, 0.2, t) * near * tint;
+        s.size[i] = this.size0[i] * (0.6 + 0.4 * near);
       }
     }
     s.dirty();

@@ -11,7 +11,7 @@ import { ParticlePool, createParticleSystem } from './particles.js';
  *
  *  - idle       slow spin, faint breathing
  *  - listening  "atom" — electrons orbit the core on tilted rings, speed and radius follow the
- *               mic spectrum, and sound motes spiral in toward the core
+ *               mic spectrum, and sound motes from the room accelerate into the core and are absorbed
  *  - speaking   the core pumps (each latitude band of the swarm follows one frequency band of
  *               Sparrow's voice) and it throws particles out into the room; every transcript
  *               chunk (≈ a word) adds an extra kick
@@ -19,7 +19,7 @@ import { ParticlePool, createParticleSystem } from './particles.js';
 
 const POINT_COUNT = 12000;
 const CORE_RADIUS = 1.45;
-const CAMERA_Z = 7.5;
+const CAMERA_Z = 9;
 
 // Tilted electron rings. `w` = angular speed (rad/s), sign = direction.
 const RINGS = [
@@ -195,7 +195,7 @@ function Scene({ palette, live, pulseRef }) {
     if (pulseRef.current !== s.lastPulse) {
       s.lastPulse = pulseRef.current;
       s.kick = 1;
-      burst = 22;
+      burst = 3;
     }
     s.kick *= Math.exp(-dt * 5);
 
@@ -205,11 +205,13 @@ function Scene({ palette, live, pulseRef }) {
     // Offline, the core breathes a little deeper and swells on hover: "tap me".
     const breathe = (0.012 + (L.interactive ? 0.018 : 0)) * Math.sin(t * 1.1);
     const common = 1 + breathe + s.kick * 0.07 - s.listen * 0.03 + s.hover * 0.045;
+    // Treble bands (the poles) carry little speech energy, so mix in the overall level to keep the whole orb alive.
+    const wholeOut = levelOut * 1.6;
     for (let i = 0; i < POINT_COUNT; i++) {
       const b = band[i];
       const w = 0.8 + 0.2 * Math.sin(t * 7 + phase[i]);
       const r =
-        CORE_RADIUS * (common + a.outS[b] * s.speak * 0.34 * w + a.inS[b] * s.listen * 0.07 * w);
+        CORE_RADIUS * (common + (0.45 * a.outS[b] + 0.55 * wholeOut) * s.speak * 0.22 * w + a.inS[b] * s.listen * 0.07 * w);
       const i3 = i * 3;
       pos[i3] = dirs[i3] * r;
       pos[i3 + 1] = dirs[i3 + 1] * r;
@@ -236,7 +238,7 @@ function Scene({ palette, live, pulseRef }) {
 
     // Portrait screens: back the camera off so the core still fits the narrow width.
     const aspect = state.size.width / Math.max(1, state.size.height);
-    state.camera.position.z = Math.max(CAMERA_Z, 6.3 / aspect);
+    state.camera.position.z = Math.max(CAMERA_Z, 7.6 / aspect);
 
     // ---- shared point-size scale (world size → pixels) ----
     const scale =
@@ -249,11 +251,11 @@ function Scene({ palette, live, pulseRef }) {
     const lights = drones.lights;
     const pick = () => lights[(Math.random() * lights.length) | 0];
     if (s.speak > 0.05 || burst) {
-      s.accOut += (30 + 520 * levelOut) * s.speak * dt + burst;
+      s.accOut += (6 + 90 * levelOut) * s.speak * dt + burst;
       while (s.accOut >= 1) {
         s.accOut -= 1;
         const d = randomDir(0.55);
-        const speed = (1.0 + 3.2 * levelOut + 1.2 * s.kick) * rand(0.6, 1.4);
+        const speed = (0.8 + 2.2 * levelOut + 0.8 * s.kick) * rand(0.6, 1.4);
         const swirl = rand(-0.4, 0.4);
         const c = pick();
         pools.out.spawn(
@@ -263,7 +265,7 @@ function Scene({ palette, live, pulseRef }) {
           d[0] * speed - d[1] * swirl,
           d[1] * speed + d[0] * swirl,
           d[2] * speed,
-          rand(1.8, 3.6),
+          rand(1.3, 2.4),
           rand(0.04, 0.1) + levelOut * 0.05,
           c[0],
           c[1],
@@ -273,14 +275,14 @@ function Scene({ palette, live, pulseRef }) {
     }
     pools.out.update(dt, 1);
 
-    // ---- listening: sound motes spiral in toward the core ----
+    // ---- listening: the core pulls sound in from the room ----
     if (mic > 0.1) {
-      s.accIn += (14 + 260 * levelIn) * mic * dt;
+      s.accIn += (10 + 200 * levelIn) * mic * dt;
       while (s.accIn >= 1) {
         s.accIn -= 1;
         const d = randomDir(0.6);
-        const r0 = rand(3.2, 5.4);
-        const life = rand(1.1, 2.0);
+        const r0 = rand(3.6, 6.0);
+        const life = rand(1.3, 2.2);
         const v = (r0 - CORE_RADIUS * 0.9) / life;
         const c = pick();
         pools.inn.spawn(
