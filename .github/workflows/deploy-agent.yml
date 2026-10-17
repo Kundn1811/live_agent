@@ -1,0 +1,51 @@
+name: Deploy agent (LiveKit Cloud)
+
+# Runs on every push to master that touches the agent code, or by hand from the Actions tab.
+on:
+  push:
+    branches: [master]
+    paths:
+      - agent/agent.py
+      - agent/config.py
+      - agent/personas.py
+      - agent/personas/**
+      - agent/requirements.txt
+      - agent/Dockerfile
+      - agent/.dockerignore
+      - agent/livekit.toml
+      - .github/workflows/deploy-agent.yml
+  workflow_dispatch:
+
+# One deploy at a time; a newer push waits instead of killing a build half way.
+concurrency:
+  group: deploy-agent
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to LiveKit Cloud
+        uses: livekit/deploy-action@v2
+        env:
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+          # KEY=value,KEY=value  ->  GOOGLE_CLOUD_PROJECT=...,GOOGLE_CREDENTIALS_B64=...
+          SECRET_LIST: ${{ secrets.AGENT_SECRET_LIST }}
+        with:
+          OPERATION: deploy
+          WORKING_DIRECTORY: agent
+
+      - name: Wait until the new version is running
+        uses: livekit/deploy-action@v2
+        env:
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+        with:
+          OPERATION: status-retry
+          WORKING_DIRECTORY: agent
+          TIMEOUT: 5m

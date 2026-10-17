@@ -15,7 +15,7 @@ Browser (React + Vite) <-- WebSocket --> FastAPI backend <-- google-genai --> Ge
 ```
 
 ## LiveKit migration (in progress)
-A LiveKit Agents version lives in `agent/`, side-by-side with `backend/` until cutover. Plan + milestone status: `docs/livekit-migration-plan.md`; implementation docs: `agent/README.md`. Keep both updated as milestones land.
+A LiveKit Agents version lives in `agent/`, side-by-side with `backend/` (kept permanently, never deployed, no deploy scripts). **LiveKit is the default** (frontend `/` and `/private`); `backend/` is only reachable at the `/legacy` route and will NOT be deployed. Plan, handoff context (decisions, personas, deploy order) and milestone status: `docs/livekit-migration-plan.md` — read its "Handoff context" first in a new session. Implementation docs: `agent/README.md`. Keep both updated as milestones land, and put new project context in the plan file.
 
 ## Layout
 - `backend/main.py` — FastAPI app + `lifespan` (starts/stops the pool), the `/ws` endpoint, and the audio pump (`receive_from_client` / `receive_from_gemini`). `build_live_config()` builds the `LiveConnectConfig` (with `session_resumption` enabled and the `google_search` tool attached).

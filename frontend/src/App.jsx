@@ -3,11 +3,13 @@ import config from './config.js';
 import useWebSocket from './hooks/useWebSocket.js';
 import useAudioCapture from './hooks/useAudioCapture.js';
 import useAudioPlayback from './hooks/useAudioPlayback.js';
+import useLiveKitSession from './hooks/useLiveKitSession.js';
 import LeftPanel from './components/LeftPanel.jsx';
 import CenterPanel from './components/CenterPanel.jsx';
 import InfoTag from './components/InfoTag.jsx';
 import HistoryPanel from './components/HistoryPanel.jsx';
 import ConfirmDialog from './components/ConfirmDialog.jsx';
+import CodeGate from './components/CodeGate.jsx';
 import useDevMode from './hooks/useDevMode.js';
 import useSessionRecorder from './hooks/useSessionRecorder.js';
 import { loadSessions } from './sessionStore.js';
@@ -17,8 +19,30 @@ import './App.css';
 // carries a decimal, so a raw subtraction yields float noise (e.g. -615.9000001).
 const round1 = (v) => Math.round(v * 10) / 10;
 
+// Private route: the access code lives only for this tab.
+const CODE_KEY = 'sparrow_code';
+const readStoredCode = () => {
+  if (!config.isPrivate) return '';
+  try {
+    return sessionStorage.getItem(CODE_KEY) || '';
+  } catch {
+    return '';
+  }
+};
+const storeCode = (code) => {
+  try {
+    if (code) sessionStorage.setItem(CODE_KEY, code);
+    else sessionStorage.removeItem(CODE_KEY);
+  } catch {
+    // Storage blocked: the code just won't survive a reload.
+  }
+};
+
 export default function App() {
   const [sessionActive, setSessionActive] = useState(false);
+  const [accessCode, setAccessCode] = useState(readStoredCode);
+  const [gateError, setGateError] = useState('');
+  const codeRef = useRef(accessCode);
   // Developer mode shows the latency / debug panel. A hidden gesture on the wordmark turns it on and off.
   const [devMode, setDevMode] = useDevMode();
   const [devPrompt, setDevPrompt] = useState(null); // null | 'enter' | 'exit'
@@ -171,7 +195,7 @@ export default function App() {
     addSystemMessage(`Error: ${message}`);
   }, [addSystemMessage]);
 
-  const { connectionStatus, connect, disconnect, sendAudio, sendMetrics } = useWebSocket({
+  const ws = useWebSocket({
     onSetupComplete: handleSetupComplete,
     onServerFirstAudio: handleServerFirstAudio,
     onConnectLatency: handleConnectLatency,
@@ -184,11 +208,25 @@ export default function App() {
     onError: handleError,
   });
   // Keep the ref pointed at the current sender so handleAudioOutput can reach it.
-  sendMetricsRef.current = sendMetrics;
+  sendMetricsRef.current = ws.sendMetrics;
+
+  // LiveKit transport. Both transports' hooks always run (hook order must stay
+  // fixed) but only the selected one is driven; the other stays idle.
+  const useLK = config.transport === 'livekit';
+  const lk = useLiveKitSession({
+    onReady: handleSetupComplete,
+    onInputTranscript: handleInputTranscript,
+    onOutputTranscript: handleOutputTranscript,
+    onUserSpeaking: setUserSpeaking,
+    onModelSpeaking: setModelSpeaking,
+    onError: handleError,
+  });
+  const connectionStatus = useLK ? lk.connectionStatus : ws.connectionStatus;
+  const disconnect = useLK ? lk.disconnect : ws.disconnect;
 
   const handleAudioChunk = useCallback((base64Data) => {
-    sendAudio(base64Data);
-  }, [sendAudio]);
+    ws.sendAudio(base64Data);
+  }, [ws.sendAudio]);
 
   const handleSpeechActivity = useCallback((active) => {
     setUserSpeaking(active);
@@ -208,10 +246,13 @@ export default function App() {
     }
   }, []);
 
-  const { isMuted, start: startCapture, stop: stopCapture, toggleMute } = useAudioCapture({
+  const capture = useAudioCapture({
     onAudioChunk: handleAudioChunk,
     onSpeechActivity: handleSpeechActivity,
   });
+  const { start: startCapture, stop: stopCapture } = capture;
+  const isMuted = useLK ? lk.isMuted : capture.isMuted;
+  const toggleMute = useLK ? lk.toggleMute : capture.toggleMute;
 
   const startSession = useCallback(async () => {
     try {
@@ -237,28 +278,56 @@ export default function App() {
       rttLastRef.current = null;
       rttMinRef.current = null;
       beginRecording();
+      if (useLK) {
+        // WebRTC owns the mic; connect() asks for permission when it publishes.
+        // Flip sessionActive right away so the orb shows "connecting".
+        const connecting = lk.connect(config.isPrivate ? codeRef.current : undefined);
+        setSessionActive(true);
+        await connecting;
+        return;
+      }
       await startCapture();
       // Backend still expects a setup message with languages but ignores them.
-      connect(config.defaultSourceLanguage, config.defaultTargetLanguage);
+      ws.connect(config.defaultSourceLanguage, config.defaultTargetLanguage);
       setSessionActive(true);
     } catch (err) {
+      finishRecording();
+      setSessionActive(false);
+      if (config.isPrivate && (err?.status === 401 || err?.status === 429)) {
+        // Bad code (or too many tries): back to the gate with the reason.
+        codeRef.current = '';
+        storeCode('');
+        setAccessCode('');
+        setGateError(err.message);
+        return;
+      }
       addSystemMessage(
         err?.name === 'NotAllowedError'
           ? 'Microphone is blocked. Allow mic access, then tap the orb again.'
           : `Couldn't start: ${err.message}`,
       );
     }
-  }, [startCapture, connect, addSystemMessage, beginRecording]);
+  }, [useLK, lk.connect, startCapture, ws.connect, addSystemMessage, beginRecording, finishRecording]);
+
+  // Gate submit counts as the user's tap: start right away so the browser
+  // allows the mic prompt, and a wrong code shows up immediately.
+  const submitCode = useCallback((code) => {
+    codeRef.current = code;
+    storeCode(code);
+    setGateError('');
+    setAccessCode(code);
+    startSession();
+  }, [startSession]);
 
   const endSession = useCallback(() => {
     finishRecording();
-    stopCapture();
+    if (!useLK) stopCapture();
     stopPlayback();
     disconnect();
     setSessionActive(false);
     setModelSpeaking(false);
     setUserSpeaking(false);
-  }, [finishRecording, stopCapture, stopPlayback, disconnect]);
+  }, [useLK, finishRecording, stopCapture, stopPlayback, disconnect]);
 
   const handleStopSession = useCallback(() => {
     endSession();
@@ -281,7 +350,11 @@ export default function App() {
   useEffect(() => {
     if (sessionActive && connectionStatus === 'disconnected') {
       endSession();
-      setNotice('Connection lost. Tap the orb to try again.');
+      setNotice(
+        config.isPrivate
+          ? 'Session ended. Tap the orb to talk again.'
+          : 'Connection lost. Tap the orb to try again.',
+      );
     }
   }, [sessionActive, connectionStatus, endSession]);
 
@@ -304,6 +377,10 @@ export default function App() {
     perceivedLastMs != null && serverFirstAudioMs != null
       ? round1(perceivedLastMs - serverFirstAudioMs)
       : null;
+
+  if (config.isPrivate && !accessCode) {
+    return <CodeGate error={gateError} onSubmit={submitCode} />;
+  }
 
   return (
     <div className="app-layout">

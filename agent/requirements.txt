@@ -1,2 +1,4 @@
 livekit-agents[google]~=1.8.5
 python-dotenv
+fastapi
+uvicorn[standard]

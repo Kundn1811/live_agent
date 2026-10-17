@@ -5,7 +5,10 @@ Mirrors the model/voice/VAD/persona constants in backend/config.py so both
 transports behave identically during the side-by-side migration. backend/ is
 removed at cutover (M5), after which this is the single source of truth.
 """
+import base64
+import hashlib
 import os
+import tempfile
 
 from dotenv import load_dotenv
 
@@ -14,16 +17,55 @@ from dotenv import load_dotenv
 # the Google ADC vars (GOOGLE_APPLICATION_CREDENTIALS / GOOGLE_CLOUD_PROJECT).
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
+
+def _materialize_google_key() -> None:
+    """Hosted deploys pass the service-account key as an env secret, not a file.
+
+    GOOGLE_CREDENTIALS_B64 = base64 of the key JSON (base64 survives comma-separated
+    secret lists and one-line secret files). Written to a temp file so the Google
+    libraries find it through GOOGLE_APPLICATION_CREDENTIALS. Local runs keep using
+    the key-file path from .env.
+    """
+    b64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "").strip()
+    if not b64 or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+        return
+    key = base64.b64decode(b64)
+    # Content-addressed name: job processes import this concurrently and rewrite
+    # nothing if the file is already there.
+    path = os.path.join(
+        tempfile.gettempdir(), f"gcp-key-{hashlib.sha256(key).hexdigest()[:16]}.json"
+    )
+    if not os.path.exists(path):
+        tmp = f"{path}.{os.getpid()}"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(key)
+        os.replace(tmp, path)  # atomic, so a reader never sees a half-written key
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
+
+
+_materialize_google_key()
+
 # Vertex AI Configuration
 GOOGLE_CLOUD_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "account-pocs")
 GOOGLE_CLOUD_LOCATION = "us-central1"  # Gemini Live API requires us-central1
 
-# Model Configuration - NEVER CHANGE THIS MODEL ID
+# Model Configuration - NEVER CHANGE THIS MODEL ID (Vertex). The Vertex id retires
+# Dec 13, 2026; move to Gemini 3.8 Live before then.
 MODEL_ID = "gemini-live-2.5-flash-native-audio"
+
+# Two Gemini backends. The token server picks one per mint (dispatch metadata
+# `backend`): the public route uses the Gemini API free tier, /private stays on
+# Vertex because free-tier content may be used by Google to improve products.
+BACKEND_VERTEX = "vertex"
+BACKEND_GEMINI_API = "gemini_api"
+# The Gemini API serves the same model under a different id; check it is still current.
+GEMINI_API_MODEL_ID = "gemini-2.5-flash-native-audio-preview-12-2025"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 # Name the agent registers under; the token server dispatches this agent into
 # each new room explicitly (so it never auto-joins unrelated rooms).
-AGENT_NAME = "sparrow"
+AGENT_NAME = os.environ.get("AGENT_NAME", "sparrow")
 
 # VAD (Voice Activity Detection) Configuration — Gemini server-side VAD.
 VAD_START_OF_SPEECH_SENSITIVITY = "START_SENSITIVITY_LOW"

@@ -1,0 +1,2 @@
+Optional. If this file exists next to <id>.md, the agent speaks first using this instruction, e.g.:
+Greet them warmly by name in one short sentence, say who you are, then stop and let them reply.
