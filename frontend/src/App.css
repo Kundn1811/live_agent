@@ -5,6 +5,7 @@
 .app-layout {
   display: flex;
   height: 100vh;
+  height: 100dvh; /* iOS Safari: 100vh runs behind the toolbar and hides the bottom */
   width: 100vw;
   overflow: hidden;
   background-color: var(--color-bg);
@@ -393,6 +394,7 @@
   justify-content: flex-end;
   gap: 18px;
   padding: 28px;
+  padding-bottom: calc(28px + env(safe-area-inset-bottom));
   pointer-events: none;
 }
 
