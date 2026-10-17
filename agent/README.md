@@ -24,7 +24,7 @@ Browser --WebRTC--> LiveKit Cloud --job dispatch--> agent worker (this dir) --go
 
 ## How it works
 - **Session:** each LiveKit room dispatch runs `entrypoint()` → `AgentSession(llm=RealtimeModel)` → `session.start(room, Sparrow())`. User speaks first (no greeting).
-- **Model config:** `google.realtime.RealtimeModel(model=MODEL_ID, vertexai=True, location="us-central1", voice="Kore", realtime_input_config=<Gemini server VAD>, input/output transcription on)`. Same settings as `backend/main.py:build_live_config`.
+- **Model config:** `google.realtime.RealtimeModel(model=MODEL_ID, vertexai=True, location="us-central1", voice="Kore", realtime_input_config=<Gemini server VAD>, input/output transcription on)`. Same settings as `backend/main.py:build_live_config`. `build_realtime_model(backend)` picks the backend per room from the dispatch metadata: `gemini_api` (public `/token`: Gemini API key, free tier, model `GEMINI_API_MODEL_ID`) or `vertex` (private; also the default for a missing flag).
 - **Google Search:** `Agent(tools=[google.tools.GoogleSearch()])`. The plugin forwards provider tools into the Live config. Vertex allows one tool kind per session — adding a `function_tool` would silently drop search (plugin logs a warning).
 - **Resumption:** handled by the plugin — always enables `SessionResumptionConfig`, stores the latest `new_handle`, restarts the connection on `go_away`. Non-transparent (a turn in flight at swap time may be cut), same as the legacy wrapper. Replaces `backend/resumable_session.py`.
 - **Warm pool:** none. The plugin has no pre-connect hook; the Gemini handshake happens at `session.start`. See M3 gate in the plan.
@@ -50,8 +50,8 @@ Routes: `/` public Sparrow (LiveKit), `/private` access-code gate (LiveKit, pers
 Frontend env (optional): `VITE_TOKEN_URL`, `VITE_TRANSPORT` (overrides the public route only).
 
 ## Personas + private route
-- `personas.py` — registry. `sparrow` = `DEFAULT_SYSTEM_INSTRUCTION`; others load `personas/<id>.md` (gitignored; template `persona.example.md`), with an optional `personas/<id>.greeting.txt` for an agent-first greeting. Personas are discovered from files; no persona names or details are in code.
-- `codes.json` (gitignored; `codes.example.json` is the template) — `{code: {persona, name, limit_s}}`. Re-read per request.
+- `personas.py` — registry. `sparrow` = `DEFAULT_SYSTEM_INSTRUCTION`; others load `personas/<id>.md` (gitignored; template `persona.example.md`), with an optional `personas/<id>.greeting.txt` for an agent-first greeting. Personas are discovered from files; no persona names or details are in code. Hosted agents have no files: the same texts come from base64 secrets `PERSONA_<ID>_B64` and `PERSONA_<ID>_GREETING_B64` (a file wins).
+- `codes.json` (gitignored; `codes.example.json` is the template) — `{code: {persona, name, limit_s}}`. Re-read per request. In the cloud there is no file: the same JSON comes from the `CODES_JSON` env (Secret Manager); a local file wins.
 - `POST /token/private {code}` → 401 on a bad code, 429 after 5 wrong tries / 10 min / IP. On success the room is dispatched with metadata `{persona, name, limit_s}`; the prompt text never leaves the server.
 - `agent.py` reads `ctx.job.metadata`, loads the persona, and runs `enforce_budget`: goodbye line 20 s before `limit_s`, then `ctx.shutdown`.
 - Add a family member: add a code to `codes.json` (and a persona file + `_FILE_PERSONAS` entry if they need their own prompt).

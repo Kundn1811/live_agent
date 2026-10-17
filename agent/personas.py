@@ -11,8 +11,15 @@ git. Each one is a local file pair, both gitignored:
   personas/<id>.md            the system instruction (required)
   personas/<id>.greeting.txt  agent-first greeting instruction (optional)
 `*.example.*` files are the committed templates.
+
+In the cloud there are no such files: the same two texts come from agent secrets,
+base64-encoded (a file wins when both exist):
+  PERSONA_<ID>_B64            instruction        (<ID> = id upper-cased, "-" -> "_")
+  PERSONA_<ID>_GREETING_B64   greeting
 """
 
+import base64
+import binascii
 import os
 import re
 from dataclasses import dataclass
@@ -45,16 +52,38 @@ def _read(path: str | None) -> str | None:
     return None
 
 
+def _from_env(persona_id: str, greeting: bool = False) -> str | None:
+    """Base64 secret fallback for hosted deploys (no persona files there)."""
+    if not _ID_RE.match(persona_id):
+        return None
+    name = persona_id.upper().replace("-", "_")
+    raw = os.environ.get(f"PERSONA_{name}{'_GREETING' if greeting else ''}_B64", "").strip()
+    if not raw:
+        return None
+    try:
+        return base64.b64decode(raw, validate=True).decode("utf-8").strip() or None
+    except (binascii.Error, UnicodeDecodeError):
+        return None
+
+
 def load_persona(persona_id: str) -> Persona:
     """Resolve a persona id. Unknown ids and missing files fall back to Sparrow."""
-    instructions = _read(_path(persona_id, ".md")) if persona_id != DEFAULT_PERSONA else None
+    instructions = None
+    if persona_id != DEFAULT_PERSONA:
+        instructions = _read(_path(persona_id, ".md")) or _from_env(persona_id)
     if instructions:
-        return Persona(persona_id, instructions, _read(_path(persona_id, ".greeting.txt")))
+        greeting = _read(_path(persona_id, ".greeting.txt")) or _from_env(persona_id, greeting=True)
+        return Persona(persona_id, instructions, greeting)
     return Persona(
         DEFAULT_PERSONA, DEFAULT_SYSTEM_INSTRUCTION.format(ai_gender=AI_GENDER)
     )
 
 
-def is_known(persona_id: str) -> bool:
-    """True if the token server may hand this persona out."""
-    return persona_id == DEFAULT_PERSONA or _read(_path(persona_id, ".md")) is not None
+def is_valid_id(persona_id: str) -> bool:
+    """True if the id is well-formed.
+
+    The token server runs without the persona files (they live with the agent), so
+    it trusts the ids in codes.json. An id with no matching persona on the agent
+    falls back to Sparrow (load_persona).
+    """
+    return bool(_ID_RE.match(persona_id)) and not persona_id.endswith(".example")

@@ -50,8 +50,18 @@ _materialize_google_key()
 GOOGLE_CLOUD_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "account-pocs")
 GOOGLE_CLOUD_LOCATION = "us-central1"  # Gemini Live API requires us-central1
 
-# Model Configuration - NEVER CHANGE THIS MODEL ID
+# Model Configuration - NEVER CHANGE THIS MODEL ID (Vertex). The Vertex id retires
+# Dec 13, 2026; move to Gemini 3.8 Live before then.
 MODEL_ID = "gemini-live-2.5-flash-native-audio"
+
+# Two Gemini backends. The token server picks one per mint (dispatch metadata
+# `backend`): the public route uses the Gemini API free tier, /private stays on
+# Vertex because free-tier content may be used by Google to improve products.
+BACKEND_VERTEX = "vertex"
+BACKEND_GEMINI_API = "gemini_api"
+# The Gemini API serves the same model under a different id; check it is still current.
+GEMINI_API_MODEL_ID = "gemini-2.5-flash-native-audio-preview-12-2025"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 # Name the agent registers under; the token server dispatches this agent into
 # each new room explicitly (so it never auto-joins unrelated rooms).

@@ -22,6 +22,9 @@ from livekit.plugins import google
 
 from config import (
     AGENT_NAME,
+    BACKEND_GEMINI_API,
+    GEMINI_API_KEY,
+    GEMINI_API_MODEL_ID,
     GOOGLE_CLOUD_LOCATION,
     GOOGLE_CLOUD_PROJECT,
     MODEL_ID,
@@ -47,13 +50,26 @@ for _name in ("sparrow", "livekit.agents"):
     logging.getLogger(_name).addHandler(_file_log)
 
 
-def build_realtime_model() -> google.realtime.RealtimeModel:
-    """Gemini Live model with the same voice/VAD/transcription as backend/."""
+def build_realtime_model(backend: str) -> google.realtime.RealtimeModel:
+    """Gemini Live model with the same voice/VAD/transcription as backend/.
+
+    `backend` is BACKEND_GEMINI_API (free tier, public route) or BACKEND_VERTEX.
+    Anything else counts as Vertex, so a missing flag never lands private
+    conversations on the free tier.
+    """
+    if backend == BACKEND_GEMINI_API:
+        if not GEMINI_API_KEY:
+            raise RuntimeError("GEMINI_API_KEY is not set (needed for the public route)")
+        target = {"model": GEMINI_API_MODEL_ID, "vertexai": False, "api_key": GEMINI_API_KEY}
+    else:
+        target = {
+            "model": MODEL_ID,
+            "vertexai": True,
+            "project": GOOGLE_CLOUD_PROJECT,
+            "location": GOOGLE_CLOUD_LOCATION,
+        }
     return google.realtime.RealtimeModel(
-        model=MODEL_ID,
-        vertexai=True,
-        project=GOOGLE_CLOUD_PROJECT,
-        location=GOOGLE_CLOUD_LOCATION,
+        **target,
         voice=VOICE_NAME,
         modalities=[types.Modality.AUDIO],
         realtime_input_config=types.RealtimeInputConfig(
@@ -91,7 +107,7 @@ WRAP_UP_LEAD_S = 20.0
 
 
 def read_job_metadata(ctx: JobContext) -> dict:
-    """Dispatch metadata set by the token server: {persona, name, limit_s}."""
+    """Dispatch metadata set by the token server: {persona, name, limit_s, max_turns, backend}."""
     try:
         meta = json.loads(ctx.job.metadata or "{}")
         return meta if isinstance(meta, dict) else {}
@@ -179,12 +195,13 @@ async def entrypoint(ctx: JobContext):
     persona = load_persona(meta.get("persona") or DEFAULT_PERSONA)
     limit_s = float(meta.get("limit_s") or SESSION_BUDGET_S)
     max_turns = int(meta.get("max_turns") or 0)  # 0 = unlimited (private routes)
+    backend = meta.get("backend") or ""
     logger.info(
-        "room %s: job started (persona=%s, limit=%ss, max_turns=%s)",
-        ctx.room.name, persona.id, limit_s, max_turns or "none",
+        "room %s: job started (persona=%s, limit=%ss, max_turns=%s, backend=%s)",
+        ctx.room.name, persona.id, limit_s, max_turns or "none", backend or "vertex",
     )
 
-    session = AgentSession(llm=build_realtime_model())
+    session = AgentSession(llm=build_realtime_model(backend))
 
     # Turn cap lives here (server side), not in the browser.
     user_turns = 0

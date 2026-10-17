@@ -46,24 +46,28 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      # min=max=1: the gate counters live in memory, so exactly one copy must exist, always.
-      # CPU 0.5 needs concurrency 1. Request-based billing (CPU throttled between requests).
+      # max=1: the gate counters live in memory, so never more than one copy. min defaults to 1
+      # (counters survive between visits, about $3 a month); set repo variable
+      # TOKEN_MIN_INSTANCES=0 for about $0 (counters reset on every cold start).
+      # Smallest size: CPU under 1 needs concurrency 1. Raise memory to 512Mi if it runs out.
+      # Request-based billing (CPU throttled between requests).
       # "^@^" makes @ the separator, so CORS_ORIGINS may itself contain commas.
       - name: Deploy
         env:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
           CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
+          MIN_INSTANCES: ${{ vars.TOKEN_MIN_INSTANCES || '1' }}
         run: |
           gcloud run deploy "$SERVICE" \
             --project "$GCP_PROJECT_ID" \
             --region "$REGION" \
             --source .deploy/token \
             --allow-unauthenticated \
-            --min-instances 1 --max-instances 1 \
-            --cpu 0.5 --memory 512Mi --concurrency 1 \
+            --min-instances "$MIN_INSTANCES" --max-instances 1 \
+            --cpu 0.25 --memory 256Mi --concurrency 1 \
             --set-env-vars "^@^LIVEKIT_URL=${LIVEKIT_URL}@CORS_ORIGINS=${CORS_ORIGINS}" \
-            --set-secrets "LIVEKIT_API_KEY=livekit-api-key:latest,LIVEKIT_API_SECRET=livekit-api-secret:latest"
+            --set-secrets "LIVEKIT_API_KEY=livekit-api-key:latest,LIVEKIT_API_SECRET=livekit-api-secret:latest,CODES_JSON=sparrow-codes:latest"
 
       - name: Smoke test
         env:

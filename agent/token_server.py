@@ -22,12 +22,15 @@ from livekit import api
 from pydantic import BaseModel
 
 from config import AGENT_NAME, SESSION_BUDGET_S
-from personas import DEFAULT_PERSONA, is_known
+from config import BACKEND_GEMINI_API, BACKEND_VERTEX
+from personas import DEFAULT_PERSONA, is_valid_id
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(HERE, ".env"))
 
 CODES_PATH = os.path.join(HERE, "codes.json")
+# Hosted deploys have no codes.json: the same JSON comes from the CODES_JSON secret.
+# A local file wins when present.
 # Wrong-code throttle, per client IP (in-memory; resets on restart).
 MAX_FAILS = 5
 FAIL_WINDOW_S = 600
@@ -40,6 +43,9 @@ PUBLIC_GLOBAL_DAILY_LIMIT = int(os.environ.get("PUBLIC_GLOBAL_DAILY_LIMIT", "40"
 PUBLIC_MAX_TURNS = int(os.environ.get("PUBLIC_MAX_TURNS", "3"))
 PUBLIC_LIMIT_S = float(os.environ.get("PUBLIC_LIMIT_S", "180"))
 TRUST_PROXY = os.environ.get("TRUST_PROXY", "") == "1"
+# Gemini backend for the public route: "vertex" (default) or "gemini_api" (needs a FREE-tier
+# key in the agent's GEMINI_API_KEY; a billed key costs the same as Vertex, so no gain).
+PUBLIC_BACKEND = os.environ.get("PUBLIC_BACKEND", BACKEND_VERTEX)
 _public_mints: list[tuple[float, str]] = []  # (monotonic time, ip)
 
 LIVEKIT_URL = os.environ.get("LIVEKIT_URL", "")
@@ -92,6 +98,7 @@ def _mint(
     name: str | None = None,
     limit_s: float | None = None,
     max_turns: int | None = None,
+    backend: str = BACKEND_VERTEX,
 ) -> dict:
     """Fresh room + join token, with the agent dispatched carrying the persona id."""
     if not (LIVEKIT_URL and LIVEKIT_API_KEY and LIVEKIT_API_SECRET):
@@ -101,7 +108,13 @@ def _mint(
     identity = f"user-{uuid.uuid4().hex[:8]}"
     # Only ids and numbers go to the agent; prompt text never leaves the server.
     metadata = json.dumps(
-        {"persona": persona, "name": name, "limit_s": limit_s, "max_turns": max_turns}
+        {
+            "persona": persona,
+            "name": name,
+            "limit_s": limit_s,
+            "max_turns": max_turns,
+            "backend": backend,
+        }
     )
 
     jwt = (
@@ -127,16 +140,26 @@ async def token(request: Request):
     here also bounds a visitor who stays silent and just holds the session.
     """
     _check_public_gate(_client_ip(request))
-    return _mint(DEFAULT_PERSONA, limit_s=PUBLIC_LIMIT_S, max_turns=PUBLIC_MAX_TURNS)
+    # The free-tier Gemini API (if enabled) is fine for the public demo, never for private chats.
+    return _mint(
+        DEFAULT_PERSONA,
+        limit_s=PUBLIC_LIMIT_S,
+        max_turns=PUBLIC_MAX_TURNS,
+        backend=PUBLIC_BACKEND if PUBLIC_BACKEND == BACKEND_GEMINI_API else BACKEND_VERTEX,
+    )
 
 
 def _load_codes() -> dict:
     # Re-read per request so codes can be added without restarting the server.
     try:
-        with open(CODES_PATH, encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+        if os.path.isfile(CODES_PATH):
+            with open(CODES_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+        else:
+            data = json.loads(os.environ.get("CODES_JSON", "") or "{}")
+    except json.JSONDecodeError:
         return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _check_rate_limit(ip: str) -> None:
@@ -163,12 +186,16 @@ async def token_private(body: PrivateRequest, request: Request):
         # Compare every code in constant time; no early exit on a match.
         if hmac.compare_digest(code.encode(), submitted.encode()):
             entry = value
-    if entry is None or not is_known(entry.get("persona", "")):
+    if (
+        not isinstance(entry, dict)
+        or not isinstance(entry.get("persona"), str)
+        or not is_valid_id(entry["persona"])
+    ):
         _failures.setdefault(ip, []).append(time.monotonic())
         raise HTTPException(401, "That code did not work.")
 
     limit_s = float(entry.get("limit_s", SESSION_BUDGET_S))
-    return _mint(entry["persona"], entry.get("name"), limit_s)
+    return _mint(entry["persona"], entry.get("name"), limit_s, backend=BACKEND_VERTEX)
 
 
 @app.get("/health")
