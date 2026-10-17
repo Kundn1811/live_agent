@@ -186,3 +186,10 @@ Glossary: `lk` = the LiveKit command-line tool, installed on the PC. `lk cloud a
 - **Search on realtime + Vertex:** forwarded per source; if Gemini rejects it at runtime, fall back to a `function_tool` search proxy (non-Live grounded Gemini call).
 - **Lost warm-pool advantage:** measured, not assumed (M3 gate).
 - **Metric comparability:** WebRTC adds jitter buffer + Opus; "perceived" numbers aren't apples-to-apples with WS. Compare server-side first-audio as the primary metric.
+
+## Abuse protection (2026-10-17)
+- **Brevity:** `BREVITY_RULES` (agent/config.py) is appended to every persona in `load_persona`: max 2-3 short sentences, no stories or reading docs. Output audio tokens are the main cost.
+- **Bot check:** Cloudflare Turnstile on `/token` and `/token/private` (token server, `TURNSTILE_SECRET`; frontend `VITE_TURNSTILE_SITE_KEY`, `frontend/src/turnstile.js`). Off when the secret is unset (local dev). Needs: Cloudflare site, Secret Manager secret `turnstile-secret` (+ accessor role for the Cloud Run service account), Vercel env var, then redeploy token server and frontend.
+- **Private cap:** per code, rolling 24 h, `daily_sessions` in codes.json (default env `PRIVATE_DAILY_SESSIONS`=10); private `limit_s` lowered to 300. In-memory (resets on restart). Update the Secret Manager `sparrow-codes` secret to match local codes.json.
+- **Gotcha:** a local `agent.py dev` shares the LiveKit project and agent name `sparrow`, so it can serve deployed-site visitors. Stop it when not testing (a stop cuts live calls). Planned fix: `AGENT_NAME=sparrow-dev` in local agent/.env and for the local token server.
+- Still open: strong random private code, billing alert (quota cap done), persistent counters.

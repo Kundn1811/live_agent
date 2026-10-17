@@ -67,7 +67,7 @@ jobs:
             --min-instances "$MIN_INSTANCES" --max-instances 1 \
             --cpu 0.25 --memory 256Mi --concurrency 1 \
             --set-env-vars "^@^LIVEKIT_URL=${LIVEKIT_URL}@CORS_ORIGINS=${CORS_ORIGINS}" \
-            --set-secrets "LIVEKIT_API_KEY=livekit-api-key:latest,LIVEKIT_API_SECRET=livekit-api-secret:latest,CODES_JSON=sparrow-codes:latest"
+            --set-secrets "LIVEKIT_API_KEY=livekit-api-key:latest,LIVEKIT_API_SECRET=livekit-api-secret:latest,CODES_JSON=sparrow-codes:latest,TURNSTILE_SECRET=turnstile-secret:latest"
 
       - name: Smoke test
         env:

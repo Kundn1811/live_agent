@@ -24,7 +24,7 @@ import os
 import re
 from dataclasses import dataclass
 
-from config import AI_GENDER, DEFAULT_SYSTEM_INSTRUCTION
+from config import AI_GENDER, BREVITY_RULES, DEFAULT_SYSTEM_INSTRUCTION
 
 PERSONA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "personas")
 DEFAULT_PERSONA = "sparrow"
@@ -73,9 +73,10 @@ def load_persona(persona_id: str) -> Persona:
         instructions = _read(_path(persona_id, ".md")) or _from_env(persona_id)
     if instructions:
         greeting = _read(_path(persona_id, ".greeting.txt")) or _from_env(persona_id, greeting=True)
-        return Persona(persona_id, instructions, greeting)
+        return Persona(persona_id, f"{instructions}\n{BREVITY_RULES}", greeting)
     return Persona(
-        DEFAULT_PERSONA, DEFAULT_SYSTEM_INSTRUCTION.format(ai_gender=AI_GENDER)
+        DEFAULT_PERSONA,
+        f"{DEFAULT_SYSTEM_INSTRUCTION.format(ai_gender=AI_GENDER)}\n{BREVITY_RULES}",
     )
 
 

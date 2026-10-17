@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Room, RoomEvent, ParticipantEvent, Track } from 'livekit-client';
 import config from '../config.js';
 import { analysers, createAnalyser } from '../audioLevels.js';
+import { getTurnstileToken } from '../turnstile.js';
 
 // Agent state attribute published by the LiveKit agent on its participant.
 const AGENT_STATE_ATTR = 'lk.agent.state';
@@ -97,13 +98,15 @@ export default function useLiveKitSession({
     tConnectRef.current = performance.now();
 
     try {
+      const botToken = await getTurnstileToken();
+      const botHeader = botToken ? { 'X-Turnstile-Token': botToken } : {};
       const res = code
         ? await fetch(`${config.tokenUrl}/private`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...botHeader },
             body: JSON.stringify({ code }),
           })
-        : await fetch(config.tokenUrl);
+        : await fetch(config.tokenUrl, { headers: botHeader });
       if (!res.ok) {
         const detail = await res.json().then((b) => b.detail).catch(() => '');
         const err = new Error(detail || `Token request failed (${res.status})`);
