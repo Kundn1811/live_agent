@@ -8,10 +8,13 @@ room = one agent session. The usage gate (per-IP / global caps) will sit here.
 Run:  python token_server.py      # :8001
 """
 
+import asyncio
 import hmac
 import json
 import os
 import time
+import urllib.parse
+import urllib.request
 import uuid
 from datetime import timedelta
 
@@ -43,10 +46,18 @@ PUBLIC_GLOBAL_DAILY_LIMIT = int(os.environ.get("PUBLIC_GLOBAL_DAILY_LIMIT", "40"
 PUBLIC_MAX_TURNS = int(os.environ.get("PUBLIC_MAX_TURNS", "3"))
 PUBLIC_LIMIT_S = float(os.environ.get("PUBLIC_LIMIT_S", "180"))
 TRUST_PROXY = os.environ.get("TRUST_PROXY", "") == "1"
+# Cloudflare Turnstile bot check on both token routes. Unset = check off (local dev).
+TURNSTILE_SECRET = os.environ.get("TURNSTILE_SECRET", "")
+TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 # Gemini backend for the public route: "vertex" (default) or "gemini_api" (needs a FREE-tier
 # key in the agent's GEMINI_API_KEY; a billed key costs the same as Vertex, so no gain).
 PUBLIC_BACKEND = os.environ.get("PUBLIC_BACKEND", BACKEND_VERTEX)
 _public_mints: list[tuple[float, str]] = []  # (monotonic time, ip)
+
+# Private-route cap: sessions per code over a rolling 24 h. A code can override it with
+# "daily_sessions" in codes.json. In-memory, so it resets on restart.
+PRIVATE_DAILY_SESSIONS = int(os.environ.get("PRIVATE_DAILY_SESSIONS", "10"))
+_private_mints: dict[str, list[float]] = {}
 
 LIVEKIT_URL = os.environ.get("LIVEKIT_URL", "")
 LIVEKIT_API_KEY = os.environ.get("LIVEKIT_API_KEY", "")
@@ -77,6 +88,38 @@ def _client_ip(request: Request) -> str:
         if fwd:
             return fwd.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+def _check_private_cap(code: str, limit: int) -> None:
+    now = time.monotonic()
+    recent = [t for t in _private_mints.get(code, []) if now - t < 86400]
+    if len(recent) >= limit:
+        _private_mints[code] = recent
+        raise HTTPException(429, "That is enough for today. Please come back tomorrow.")
+    recent.append(now)
+    _private_mints[code] = recent
+
+
+def _turnstile_ok(token: str, ip: str) -> bool:
+    data = urllib.parse.urlencode(
+        {"secret": TURNSTILE_SECRET, "response": token, "remoteip": ip}
+    ).encode()
+    try:
+        with urllib.request.urlopen(
+            urllib.request.Request(TURNSTILE_VERIFY_URL, data=data), timeout=5
+        ) as resp:
+            return bool(json.load(resp).get("success"))
+    except (OSError, ValueError):
+        return False  # fail closed: no verdict, no token
+
+
+async def _check_bot(request: Request, ip: str) -> None:
+    """Reject requests without a valid Turnstile token (a bot, or a script calling us directly)."""
+    if not TURNSTILE_SECRET:
+        return
+    token = request.headers.get("x-turnstile-token", "")
+    if not token or not await asyncio.to_thread(_turnstile_ok, token, ip):
+        raise HTTPException(403, "Bot check failed. Please reload and try again.")
 
 
 def _check_public_gate(ip: str) -> None:
@@ -139,7 +182,9 @@ async def token(request: Request):
     The turn cap is enforced by the agent (server side); the short time limit
     here also bounds a visitor who stays silent and just holds the session.
     """
-    _check_public_gate(_client_ip(request))
+    ip = _client_ip(request)
+    await _check_bot(request, ip)  # before the gate, so bots don't use up the daily caps
+    _check_public_gate(ip)
     # The free-tier Gemini API (if enabled) is fine for the public demo, never for private chats.
     return _mint(
         DEFAULT_PERSONA,
@@ -178,14 +223,17 @@ class PrivateRequest(BaseModel):
 async def token_private(body: PrivateRequest, request: Request):
     """Private route: a credential code picks the persona and the session limit."""
     ip = _client_ip(request)
+    await _check_bot(request, ip)
     _check_rate_limit(ip)
 
     submitted = body.code.strip()
     entry = None
+    matched = ""
     for code, value in _load_codes().items():
         # Compare every code in constant time; no early exit on a match.
         if hmac.compare_digest(code.encode(), submitted.encode()):
             entry = value
+            matched = code
     if (
         not isinstance(entry, dict)
         or not isinstance(entry.get("persona"), str)
@@ -194,6 +242,7 @@ async def token_private(body: PrivateRequest, request: Request):
         _failures.setdefault(ip, []).append(time.monotonic())
         raise HTTPException(401, "That code did not work.")
 
+    _check_private_cap(matched, int(entry.get("daily_sessions", PRIVATE_DAILY_SESSIONS)))
     limit_s = float(entry.get("limit_s", SESSION_BUDGET_S))
     return _mint(entry["persona"], entry.get("name"), limit_s, backend=BACKEND_VERTEX)
 
