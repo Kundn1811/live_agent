@@ -40,3 +40,6 @@ agent/codes.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Private local notes (deploy state, addresses); never committed
+docs/local/
