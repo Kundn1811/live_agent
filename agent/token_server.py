@@ -43,7 +43,7 @@ _failures: dict[str, list[float]] = {}
 # the counters reset on restart. Tune via env.
 PUBLIC_IP_DAILY_LIMIT = int(os.environ.get("PUBLIC_IP_DAILY_LIMIT", "3"))
 PUBLIC_GLOBAL_DAILY_LIMIT = int(os.environ.get("PUBLIC_GLOBAL_DAILY_LIMIT", "40"))
-PUBLIC_MAX_TURNS = int(os.environ.get("PUBLIC_MAX_TURNS", "3"))
+PUBLIC_MAX_TURNS = int(os.environ.get("PUBLIC_MAX_TURNS", "5"))
 PUBLIC_LIMIT_S = float(os.environ.get("PUBLIC_LIMIT_S", "180"))
 TRUST_PROXY = os.environ.get("TRUST_PROXY", "") == "1"
 # Cloudflare Turnstile bot check on both token routes. Unset = check off (local dev).
@@ -132,7 +132,11 @@ def _check_public_gate(ip: str) -> None:
     cutoff = now - 86400
     _public_mints[:] = [(t, i) for t, i in _public_mints if t > cutoff]
     if len(_public_mints) >= PUBLIC_GLOBAL_DAILY_LIMIT:
-        raise HTTPException(429, "Sparrow is resting for today. Please come back tomorrow.")
+        raise HTTPException(
+            429,
+            "Today's free quota is used up. This demo is capped. "
+            "Please come back tomorrow, or message Kundan.",
+        )
     if sum(1 for _, i in _public_mints if i == ip) >= PUBLIC_IP_DAILY_LIMIT:
         raise HTTPException(
             429, "You have used today's free chats. Please come back tomorrow."

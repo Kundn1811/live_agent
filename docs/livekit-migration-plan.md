@@ -26,7 +26,7 @@ Move the Sparrow voice agent from the custom FastAPI WebSocket relay onto the
 3. **Pre-deploy prerequisites (all three must be done first):**
    - **P1 Hosting choice** — see "Deploy prerequisites" below.
    - **P2 Credentials** — see below. **Blocker: current local setup uses the employer GCP project/key. Must be replaced before any deploy.**
-   - **P3 Public usage gate** — 3 turns per visitor on `/` only; `/private` is excluded (code + 10-min limit only). See below.
+   - **P3 Public usage gate** — 5 turns per visitor on `/` only; `/private` is excluded (code + 10-min limit only). See below.
 4. **Deploy sequence (test each step before the next):**
    1. Deploy the backend (agent worker + token server).
    2. Test the deployed backend from the **local** frontend (point `VITE_TOKEN_URL` at it).

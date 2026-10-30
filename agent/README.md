@@ -67,7 +67,7 @@ Push to `master` deploys (agent → LiveKit Cloud, token server → Cloud Run, f
 ## Public usage gate (P3)
 - `GET /token` only; `/token/private` is excluded. In-memory, resets on restart.
 - Token server: per-IP daily limit (`PUBLIC_IP_DAILY_LIMIT`, default 3) and global daily cap (`PUBLIC_GLOBAL_DAILY_LIMIT`, default 40) over a rolling 24 h; 429 with a friendly message (the frontend shows it). Public sessions also get `PUBLIC_LIMIT_S` (default 180 s). Set `TRUST_PROXY=1` behind a proxy so the visitor IP comes from `X-Forwarded-For`.
-- Agent: metadata carries `max_turns` (`PUBLIC_MAX_TURNS`, default 3). `agent.py` counts user turns, lets the reply to the last one finish, speaks a goodbye, then `ctx.shutdown`. The counter lives on the server.
+- Agent: metadata carries `max_turns` (`PUBLIC_MAX_TURNS`, default 5). `agent.py` counts user turns, lets the reply to the last one finish, speaks a goodbye, then `ctx.shutdown`. The counter lives on the server.
 - Local testing of `/` burns the per-IP limit: set `PUBLIC_IP_DAILY_LIMIT` high in `agent/.env`.
 - Ending a session: `end_session` deletes the room (`ctx.delete_room()`) before `ctx.shutdown`; otherwise the visitor stays alone in the room and the browser never notices. Used by both the turn cap and the time limit.
 - The spoken goodbye is best effort: Gemini sometimes cuts a `generate_reply` after a few words (and `allow_interruptions=False` is not supported with server-side turn detection). A cut under 4 s is retried once.

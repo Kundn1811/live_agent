@@ -128,6 +128,11 @@ export default function InfoTag({ onTripleTap }) {
             <li>Just speak. Cut in any time.</li>
           </ol>
 
+          <p className="info-history">
+            This is a self-funded demo, so each chat is short and there is a daily quota. If Sparrow won&apos;t start, today&apos;s quota is
+            probably used up. Try again tomorrow, or message Kundan.
+          </p>
+
           <div className="info-tags">
             <span>Gemini Live</span>
             <span>React Three Fiber</span>
