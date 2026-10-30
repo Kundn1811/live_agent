@@ -71,7 +71,9 @@ CORS_ORIGINS = [
     if o.strip()
 ]
 
-app = FastAPI(title="Sparrow token server")
+app = FastAPI(
+    title="Sparrow token server", docs_url=None, redoc_url=None, openapi_url=None
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -82,11 +84,13 @@ app.add_middleware(
 
 def _client_ip(request: Request) -> str:
     # Behind a proxy (Cloud Run, Fly...) the socket peer is the proxy, so read
-    # the first X-Forwarded-For hop. Only enable TRUST_PROXY when actually behind one.
+    # X-Forwarded-For. Take the LAST hop: the proxy appends the real peer there, while
+    # anything before it is client-supplied and would let a caller dodge the per-IP caps.
+    # Only enable TRUST_PROXY when actually behind exactly one such proxy.
     if TRUST_PROXY:
         fwd = request.headers.get("x-forwarded-for", "")
         if fwd:
-            return fwd.split(",")[0].strip()
+            return fwd.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
 
@@ -163,8 +167,18 @@ def _mint(
     jwt = (
         api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
         .with_identity(identity)
-        .with_ttl(timedelta(minutes=10))
-        .with_grants(api.VideoGrants(room_join=True, room=room))
+        # Short TTL: a token can re-create its room (and re-dispatch the agent) until it
+        # expires, so a long TTL lets one mint buy many sessions. The browser joins at once.
+        .with_ttl(timedelta(seconds=60))
+        # Mic only: no video/screen share, no data messages from the visitor.
+        .with_grants(
+            api.VideoGrants(
+                room_join=True,
+                room=room,
+                can_publish_sources=["microphone"],
+                can_publish_data=False,
+            )
+        )
         .with_room_config(
             api.RoomConfiguration(
                 agents=[api.RoomAgentDispatch(agent_name=AGENT_NAME, metadata=metadata)]
