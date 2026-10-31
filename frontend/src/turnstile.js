@@ -24,9 +24,11 @@ function loadScript() {
   return scriptPromise;
 }
 
-/** Resolves to a one-time token for the token server, or null when the check is off. */
-export async function getTurnstileToken() {
-  if (!SITE_KEY) return null;
+// A token lasts 300 s and works once, so one solved ahead of the tap is reused if still fresh.
+const TOKEN_MAX_AGE_MS = 240000;
+let prefetched = null; // { promise, at }
+
+async function solve() {
   await loadScript();
 
   return new Promise((resolve, reject) => {
@@ -54,4 +56,30 @@ export async function getTurnstileToken() {
       "error-callback": () => finish(reject, new Error("Bot check failed. Please reload and try again.")),
     });
   });
+}
+
+/** Start the bot check early (page load) so the tap doesn't wait for it. Safe to call repeatedly. */
+export function prefetchTurnstileToken() {
+  if (!SITE_KEY) return;
+  if (prefetched && Date.now() - prefetched.at < TOKEN_MAX_AGE_MS) return;
+  const entry = { promise: solve(), at: Date.now() };
+  prefetched = entry;
+  entry.promise.catch(() => {
+    if (prefetched === entry) prefetched = null; // the tap will solve a fresh one
+  });
+}
+
+/** Resolves to a one-time token for the token server, or null when the check is off. */
+export async function getTurnstileToken() {
+  if (!SITE_KEY) return null;
+  const entry = prefetched;
+  prefetched = null; // single use, whatever happens next
+  if (entry && Date.now() - entry.at < TOKEN_MAX_AGE_MS) {
+    try {
+      return await entry.promise;
+    } catch {
+      /* prefetch failed: solve again below */
+    }
+  }
+  return solve();
 }
