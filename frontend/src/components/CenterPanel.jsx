@@ -3,7 +3,7 @@ import VoiceOrb from './scene/VoiceOrb.jsx';
 import SecretWordmark from './SecretWordmark.jsx';
 
 function stateLabel({ connectionStatus, userSpeaking, modelSpeaking }) {
-  if (connectionStatus === 'connecting') return 'Connecting';
+  if (connectionStatus === 'connecting') return 'Connecting, please wait';
   if (modelSpeaking) return 'Speaking';
   if (userSpeaking) return 'Listening';
   return 'Ready';
@@ -38,12 +38,13 @@ export default function CenterPanel({
 
   return (
     <div className="center-panel">
-      <div className="stage-canvas">
+      <div className={`stage-canvas${sessionActive && connectionStatus !== 'connected' ? ' waiting' : ''}`}>
         <VoiceOrb
           sessionActive={sessionActive}
-          userSpeaking={userSpeaking}
+          userSpeaking={userSpeaking && connectionStatus === 'connected'}
           modelSpeaking={modelSpeaking}
           muted={muted}
+          ready={connectionStatus === 'connected'}
           pulseRef={pulseRef}
           interactive={!sessionActive}
           onCoreTap={onStart}
@@ -77,7 +78,7 @@ export default function CenterPanel({
 
           {sessionActive && (
             <>
-              <span className={`stage-state ${label.toLowerCase()}`}>
+              <span className={`stage-state ${label.split(',')[0].toLowerCase()}`}>
                 <span className="stage-state-dot" />
                 {label}
               </span>

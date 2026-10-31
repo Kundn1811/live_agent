@@ -383,6 +383,12 @@
 .stage-canvas {
   position: absolute;
   inset: 0;
+  transition: opacity 0.4s ease;
+}
+
+/* Dim the orb until the agent is listening, so it never looks ready too early. */
+.stage-canvas.waiting {
+  opacity: 0.4;
 }
 
 .stage-overlay {
@@ -460,6 +466,16 @@
 .stage-state.speaking .stage-state-dot {
   background: var(--color-accent);
   animation: pulse-dot 1s ease-in-out infinite;
+}
+
+.stage-state.connecting {
+  color: var(--color-accent-3);
+  border-color: color-mix(in srgb, var(--color-accent-3) 45%, transparent);
+}
+
+.stage-state.connecting .stage-state-dot {
+  background: var(--color-accent-3);
+  animation: pulse-dot 0.8s ease-in-out infinite;
 }
 
 .stage-notice {

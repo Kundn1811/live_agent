@@ -13,6 +13,7 @@ import CodeGate from './components/CodeGate.jsx';
 import useDevMode from './hooks/useDevMode.js';
 import useSessionRecorder from './hooks/useSessionRecorder.js';
 import { loadSessions } from './sessionStore.js';
+import { prefetchTurnstileToken } from './turnstile.js';
 import './App.css';
 
 // Round to 1 decimal — perceived numbers are integers but the server number
@@ -221,6 +222,11 @@ export default function App() {
     onModelSpeaking: setModelSpeaking,
     onError: handleError,
   });
+  // Solve the bot check while the user reads the page, so the first tap connects faster.
+  // Private route waits for the access code first.
+  useEffect(() => {
+    if (useLK && !sessionActive && (!config.isPrivate || accessCode)) prefetchTurnstileToken();
+  }, [useLK, accessCode, sessionActive]);
   const connectionStatus = useLK ? lk.connectionStatus : ws.connectionStatus;
   const disconnect = useLK ? lk.disconnect : ws.disconnect;
 

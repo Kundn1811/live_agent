@@ -162,7 +162,8 @@ function Scene({ palette, live, pulseRef }) {
     const s = anim.current;
 
     // ---- audio → smoothed band energy (fast attack, slower release) ----
-    readBands(analysers.input, a.inRaw);
+    // Until the agent is listening, the orb must not react to the mic: users read that as "ready".
+    readBands(L.ready ? analysers.input : null, a.inRaw);
     readBands(analysers.output, a.outRaw);
     let levelIn = 0;
     let levelOut = 0;
@@ -185,8 +186,8 @@ function Scene({ palette, live, pulseRef }) {
 
     // ---- mode mixes ----
     s.speak += ((L.modelSpeaking ? 1 : 0) - s.speak) * (1 - Math.exp(-dt * 6));
-    const mic = L.sessionActive && !L.muted ? Math.max(L.userSpeaking ? 0.85 : 0, clamp01(levelIn * 5)) : 0;
-    const watching = L.sessionActive ? 0.22 : 0.06;
+    const mic = L.sessionActive && L.ready && !L.muted ?Math.max(L.userSpeaking ? 0.85 : 0, clamp01(levelIn * 5)) : 0;
+    const watching = L.sessionActive && L.ready ? 0.22 : 0.06;
     const listenTarget = Math.max(watching, mic) * (1 - 0.65 * s.speak);
     s.listen += (listenTarget - s.listen) * (1 - Math.exp(-dt * 7));
 
@@ -397,6 +398,7 @@ function Scene({ palette, live, pulseRef }) {
  * @param {boolean} props.userSpeaking
  * @param {boolean} props.modelSpeaking
  * @param {boolean} props.muted
+ * @param {boolean} [props.ready]  Agent is listening. While false the orb stays calm and ignores the mic.
  * @param {{current:number}} props.pulseRef  Bump `.current` once per transcript chunk to kick the core.
  * @param {boolean} [props.interactive]  When true, hovering the core invites a tap and tapping calls `onCoreTap`.
  * @param {() => void} [props.onCoreTap]
@@ -407,13 +409,14 @@ export default function VoiceOrb({
   userSpeaking,
   modelSpeaking,
   muted,
+  ready = true,
   pulseRef,
   interactive = false,
   onCoreTap,
 }) {
   // The scene reads this every frame; keeping it in a ref avoids re-rendering the canvas.
   const live = useRef({});
-  live.current = { sessionActive, userSpeaking, modelSpeaking, muted, interactive, onCoreTap };
+  live.current = { sessionActive, userSpeaking, modelSpeaking, muted, ready, interactive, onCoreTap };
 
   return (
     <Canvas
