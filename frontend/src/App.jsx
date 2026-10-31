@@ -76,6 +76,8 @@ export default function App() {
   // server-side pool checkout, not the client<->backend hop).
   const [connectMs, setConnectMs] = useState(null);
   const [rttMs, setRttMs] = useState(null);
+  // LiveKit connect steps, ms since the tap: { bot, ticket, join, agent, ready }.
+  const [connectMarks, setConnectMarks] = useState(null);
 
   // Running last voiced-frame timestamp (performance.now).
   const lastVoicedTsRef = useRef(null);
@@ -136,6 +138,15 @@ export default function App() {
     setRttMs(rtt);
     rttLastRef.current = rtt;
     if (rttMinRef.current == null || rtt < rttMinRef.current) rttMinRef.current = rtt;
+  }, []);
+
+  // LiveKit path: the hook reports latency numbers as they become known (developer mode only).
+  const handleLkMetrics = useCallback((m) => {
+    if ('perceivedFirstMs' in m) setPerceivedFirstMs(m.perceivedFirstMs);
+    if ('perceivedLastMs' in m) setPerceivedLastMs(m.perceivedLastMs);
+    if ('eosEdges' in m) setEosEdges(m.eosEdges);
+    if ('serverFirstAudioMs' in m) setServerFirstAudioMs(m.serverFirstAudioMs);
+    if ('rttMs' in m) setRttMs(m.rttMs);
   }, []);
 
   const handleAudioOutput = useCallback((data) => {
@@ -221,6 +232,10 @@ export default function App() {
     onUserSpeaking: setUserSpeaking,
     onModelSpeaking: setModelSpeaking,
     onError: handleError,
+    onMetrics: handleLkMetrics,
+    onConnectMarks: setConnectMarks,
+    devMetrics: devMode,
+    recordMic: devMode,
   });
   // Solve the bot check while the user reads the page, so the first tap connects faster.
   // Private route waits for the access code first.
@@ -272,6 +287,7 @@ export default function App() {
       setServerFirstAudioMs(null);
       setConnectMs(null);
       setRttMs(null);
+      setConnectMarks(null);
       lastVoicedTsRef.current = null;
       eosFirstRef.current = null;
       eosLastRef.current = null;
@@ -392,6 +408,8 @@ export default function App() {
     <div className="app-layout">
       {devMode && (
         <LeftPanel
+          recordingUrl={useLK ? lk.recordingUrl : null}
+          connectMarks={useLK ? connectMarks : null}
           connectionStatus={connectionStatus}
           sessionActive={sessionActive}
           onStartSession={startSession}
