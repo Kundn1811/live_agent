@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@livekit/krisp-noise-filter": "^0.4.5",
     "@react-three/fiber": "^8.18.0",
     "livekit-client": "^2.22.4",
     "react": "^18.3.1",

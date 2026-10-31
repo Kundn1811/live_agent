@@ -1,6 +1,8 @@
 import React from 'react';
 
 export default function LeftPanel({
+  recordingUrl,
+  connectMarks,
   connectionStatus,
   sessionActive,
   onStartSession,
@@ -111,6 +113,18 @@ export default function LeftPanel({
           <Row name="Perceived (first EoS)" value={fmtMs(perceivedFirstMs)} />
           <Row name="Round-trip (RTT)" value={fmtMs(rttMs)} />
         </div>
+        {connectMarks && (
+          <details className="latency-more" open>
+            <summary>+ connect steps (since tap)</summary>
+            <div className="latency-metrics">
+              <Row name="Bot check done" value={fmtMs(connectMarks.bot)} />
+              <Row name="Ticket received" value={fmtMs(connectMarks.ticket)} />
+              <Row name="Room joined" value={fmtMs(connectMarks.join)} />
+              <Row name="Agent in room" value={fmtMs(connectMarks.agent)} />
+              <Row name="Agent listening" value={fmtMs(connectMarks.ready)} />
+            </div>
+          </details>
+        )}
         <details className="latency-more">
           <summary>+ experiment metrics</summary>
           <div className="latency-metrics">
@@ -121,6 +135,25 @@ export default function LeftPanel({
             <Row name="WS connect" value={fmtMs(connectMs)} />
           </div>
         </details>
+      </div>
+
+      {/* Mic recording (developer mode only, kept in this browser) */}
+      <div className="control-group">
+        <span className="control-label"><span className="index">04</span> Mic recording</span>
+        {recordingUrl ? (
+          <>
+            <audio controls src={recordingUrl} style={{ width: '100%' }} />
+            <a
+              className="btn"
+              href={recordingUrl}
+              download={`sparrow-mic-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.webm`}
+            >
+              Download last session
+            </a>
+          </>
+        ) : (
+          <span className="fn-hint">Appears here after a session ends.</span>
+        )}
       </div>
 
       <div className="fn-hint">

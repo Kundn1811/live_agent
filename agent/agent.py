@@ -205,6 +205,7 @@ async def entrypoint(ctx: JobContext):
 
     # Turn cap lives here (server side), not in the browser.
     user_turns = 0
+    awaiting_reply = False  # a counted user turn has not been answered yet
     closing = False
     answered = asyncio.Event()  # the agent finished answering after the last allowed turn
     answer_started = asyncio.Event()  # ...and started to
@@ -219,17 +220,48 @@ async def entrypoint(ctx: JobContext):
         elif ev.old_state == "speaking":
             answered.set()
 
+    # Reply latency per turn: user stopped speaking -> agent starts speaking. Logged, and
+    # published as a participant attribute so the browser's developer panel can show it.
+    user_stopped_at: float | None = None
+
+    @session.on("user_state_changed")
+    def _on_user_state(ev):
+        nonlocal user_stopped_at
+        if ev.old_state == "speaking" and ev.new_state != "speaking":
+            user_stopped_at = ev.created_at
+
+    @session.on("agent_state_changed")
+    def _on_reply_start(ev):
+        nonlocal user_stopped_at
+        if ev.new_state != "speaking" or user_stopped_at is None:
+            return
+        ms = round((ev.created_at - user_stopped_at) * 1000)
+        user_stopped_at = None
+        logger.info("room %s: reply latency %d ms (user stopped -> agent speaking)", ctx.room.name, ms)
+        closer.append(
+            asyncio.create_task(ctx.room.local_participant.set_attributes({"sparrow.reply_ms": str(ms)}))
+        )
+
     # Per-turn transcript + latency report (full metrics parity is M3).
     @session.on("conversation_item_added")
     def _on_item(ev):
-        nonlocal user_turns, closing
+        nonlocal user_turns, awaiting_reply, closing
         item = ev.item
         if getattr(item, "role", None) in ("user", "assistant"):
             logger.info(
                 "room %s: %s: %r metrics=%s",
                 ctx.room.name, item.role, item.text_content, dict(item.metrics),
             )
-        if max_turns and getattr(item, "role", None) == "user":
+        role = getattr(item, "role", None)
+        if role == "assistant":
+            awaiting_reply = False
+        if max_turns and role == "user":
+            # One question can reach us as several transcripts (a pause mid-sentence, noise);
+            # only the first since the last answer counts as a turn.
+            if awaiting_reply:
+                logger.info("room %s: not a new turn (still unanswered, count=%d)", ctx.room.name, user_turns)
+                return
+            awaiting_reply = True
             user_turns += 1
             if user_turns >= max_turns and not closing:
                 closing = True
